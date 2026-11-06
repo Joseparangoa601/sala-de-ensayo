@@ -67,6 +67,9 @@ input,select{min-height:44px;border:1px solid var(--line);border-radius:10px;bac
 .alt{color:var(--accent);font-weight:500}
 .tip{background:var(--tip-bg);border-left:3px solid var(--tip-line);padding:6px 9px;border-radius:4px;font-size:.85rem}
 .ok{color:var(--ins);font-weight:600;font-size:.85rem}
+.proof.reading{border:2px solid var(--speak);box-shadow:0 0 0 4px color-mix(in srgb,var(--speak) 18%,transparent)}
+.proof.reading::before{content:"🔊 Leyendo la corrección";font:600 .65rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--speak)}
+.replay{align-self:flex-start;background:transparent;border:1px solid var(--line);border-radius:999px;padding:0 12px;font-size:.85rem;color:var(--accent)}
 /* escenario de voz */
 .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 16px 6px;border-top:1px solid var(--line);background:var(--surface)}
 .orb{--c:var(--muted);position:relative;width:88px;height:88px;border-radius:50%;border:0;background:transparent;padding:0}

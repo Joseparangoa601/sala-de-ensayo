@@ -1,5 +1,5 @@
 // Caché de la app: los archivos propios van primero a la red (siempre la última versión) y caen a caché sin conexión.
-const CACHE = "sala-v1";
+const CACHE = "sala-v2";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "scenes.js", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

@@ -24,6 +24,8 @@ const S = {
   rate: store.get("rate", 0),          // % de velocidad SSML
   voices: store.get("voices", {}),     // sceneId → voz elegida
   bargeIn: store.get("bargeIn", true),
+  voiceCorr: store.get("voiceCorr", true),   // la corrección también se dice en voz alta
+  lastCoachText: "",
   gen: 0,                 // generación del turno: invalida audio y streams viejos
   chatCtl: null,
   turnMetrics: null,
@@ -119,10 +121,11 @@ function ssml(text, voice) {
   const rate = S.rate ? `${S.rate > 0 ? "+" : ""}${S.rate}%` : "0%";
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${escXml(text)}</prosody></voice></speak>`;
 }
-function azureSynth(text, voice) {
+function azureSynthSsml(doc, chars) {
   return new Promise((resolve, reject) => {
-    AZ.synth.speakSsmlAsync(ssml(text, voice), (res) => {
-      if (res.reason === SDK.ResultReason.SynthesizingAudioCompleted) { S.usage.ttsChars += text.length; resolve(res.audioData); }
+    if (!AZ.synth) return reject({ code: "tts", detail: "sin sintetizador" });
+    AZ.synth.speakSsmlAsync(doc, (res) => {
+      if (res.reason === SDK.ResultReason.SynthesizingAudioCompleted) { S.usage.ttsChars += chars; resolve(res.audioData); }
       else {
         let detail = "";
         try { detail = SDK.CancellationDetails.fromResult(res).errorDetails; } catch {}
@@ -143,9 +146,10 @@ function unlockAudio() {
 }
 // Encola una frase: arranca la síntesis ya y reproduce en orden.
 function speakSentence(text, gen) {
-  const voice = voiceFor(S.scene);
-  const item = { text, gen, ready: null };
-  item.ready = azureSynth(text, voice)
+  speakItem({ text, gen, ssml: ssml(text, voiceFor(S.scene)) });
+}
+function speakItem(item) {
+  item.ready = azureSynthSsml(item.ssml, item.text.length)
     .then((ab) => ctx.decodeAudioData(ab.slice(0)))
     .catch((e) => { logDebug("TTS Azure falló → voz del sistema: " + (e.detail || e.code)); return { fallback: true }; });
   player.queue.push(item);
@@ -157,10 +161,11 @@ async function playNext() {
   player.playing = item;
   const buf = await item.ready;
   if (item.gen !== S.gen) { player.playing = null; return playNext(); }
-  if (S.turnMetrics && !S.turnMetrics.firstAudio) { S.turnMetrics.firstAudio = now(); finishMetrics(); }
+  if (S.turnMetrics && !S.turnMetrics.firstAudio && !item.coach) { S.turnMetrics.firstAudio = now(); finishMetrics(); }
   if (S.state !== "speaking") setState("speaking");
+  if (item.onStart) item.onStart();
   if (buf && buf.fallback) {
-    await systemSpeak(item.text, item);
+    await systemSpeak(item.coach ? item.plain : item.text, item);
   } else {
     await new Promise((res) => {
       const src = ctx.createBufferSource();
@@ -168,6 +173,7 @@ async function playNext() {
       item.src = src; src.onended = res; src.start(0);
     });
   }
+  if (item.onEnd) item.onEnd();
   playNext();
 }
 function systemSpeak(text, item) {
@@ -179,8 +185,62 @@ function systemSpeak(text, item) {
     speechSynthesis.speak(u);
   });
 }
+/* ---------------- corrección por voz (coach) ----------------
+   Voz distinta a la del personaje. Suena cuando el personaje termina su turno,
+   nunca encima de él, y resalta la tarjeta que se está leyendo. */
+const COACH_VOICES = ["en-US-AvaMultilingualNeural", "en-US-AndrewMultilingualNeural"];
+function coachVoice() { const v = voiceFor(S.scene); return v === COACH_VOICES[0] ? COACH_VOICES[1] : COACH_VOICES[0]; }
+function coachParts(c) {
+  // [idioma, texto]: el español lo dice en español y las frases en inglés, en inglés y un poco más lento.
+  const p = [];
+  if (!c.ok && c.better) { p.push(["es", "Mejor di:"], ["en", c.better]); }
+  if (c.natural) { p.push(["es", c.ok ? "Está bien. Un nativo diría:" : "Y más natural:"], ["en", c.natural]); }
+  if (c.tip) p.push(["es", c.tip]);
+  return p;
+}
+function coachSsml(parts) {
+  const body = parts.map(([lang, t]) => lang === "es"
+    ? `<lang xml:lang="es-MX">${escXml(t)}</lang><break time="200ms"/>`
+    : `<prosody rate="-12%">${escXml(t)}</prosody><break time="300ms"/>`).join("");
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-MX"><voice name="${coachVoice()}">${body}</voice></speak>`;
+}
+const coachQ = [];
+function queueCoach(c, card, gen) {
+  if (!S.voiceCorr) return;
+  const parts = coachParts(c);
+  if (!parts.length) return;
+  coachQ.push({ parts, card, gen });
+  maybeCoach();
+}
+function maybeCoach() {
+  if (!coachQ.length || player.playing || player.queue.length) return;
+  if (!["listening", "speaking"].includes(S.state)) return;
+  const job = coachQ.shift();
+  if (job.gen !== S.gen) { coachQ.length = 0; return; }   // José ya habló otra vez: queda solo en pantalla
+  const plain = job.parts.map((p) => p[1]).join(" ");
+  S.lastCoachText = plain;
+  const gen = S.gen;
+  speakItem({
+    coach: true, gen, text: plain, plain, ssml: coachSsml(job.parts),
+    onStart: () => { job.card.classList.add("reading"); job.card.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("#live").textContent = "Corrección: " + plain; },
+    onEnd: () => { job.card.classList.remove("reading"); },
+  });
+  player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
+}
+function replayCoach(c, card) {
+  if (!AZ.synth || !ctx) return;
+  const parts = coachParts(c); if (!parts.length) return;
+  const plain = parts.map((p) => p[1]).join(" ");
+  S.lastCoachText = plain;
+  const gen = S.gen;
+  speakItem({ coach: true, gen, text: plain, plain, ssml: coachSsml(parts),
+    onStart: () => card.classList.add("reading"), onEnd: () => card.classList.remove("reading") });
+  player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
+}
+
 function stopSpeaking() {
   S.gen++;
+  document.querySelectorAll(".proof.reading").forEach((el) => el.classList.remove("reading"));
   for (const it of player.queue) it.gen = -1;
   player.queue = [];
   if (player.playing) {
@@ -258,7 +318,7 @@ async function onSpeechEnd() {
   if (!text) { if (S.state === "hearing") setState("listening", "No te entendí. Repite, por favor."); return; }
   // Eco: si lo reconocido se parece a lo que dijo el personaje, se descarta.
   const lastBot = [...S.history].reverse().find((t) => t.role === "assistant");
-  if (lastBot && similarity(text, lastBot.content) > 0.6) { logDebug("Descartado por eco: " + text); return; }
+  if ((lastBot && similarity(text, lastBot.content) > 0.6) || (S.lastCoachText && similarity(text, S.lastCoachText) > 0.6)) { logDebug("Descartado por eco: " + text); return; }
   userSaid(text, { speechEnd: tEnd, sttDone: now() });
 }
 
@@ -360,8 +420,8 @@ async function characterTurn(gen) {
     full = full.trim();
     if (full) S.history.push({ role: "assistant", content: full });
     scrollLog();
-    player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
-    if (!player.playing && !player.queue.length) setState("listening", "");
+    player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
+    if (!player.playing && !player.queue.length) { setState("listening", ""); maybeCoach(); }
   } catch (e) {
     if (e?.name === "AbortError" || gen !== S.gen) return;
     const msg = {
@@ -377,6 +437,7 @@ async function characterTurn(gen) {
 }
 
 async function correct(text, prev, bubble) {
+  const gen = S.gen;
   try {
     const r = await fnFetch("corregir", { scene: S.scene.title, prev, text });
     if (!r.ok) return;
@@ -385,7 +446,15 @@ async function correct(text, prev, bubble) {
     if (!c.ok && !c.better) c.ok = true;
     S.usage.sonnetIn += c.usage?.input_tokens || 0; S.usage.sonnetOut += c.usage?.output_tokens || 0;
     bubble.insertAdjacentHTML("beforeend", proofHTML(c));
+    const card = bubble.lastElementChild;
+    if (coachParts(c).length) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "replay"; b.textContent = "▶ Escuchar la corrección";
+      b.onclick = () => replayCoach(c, card);
+      card.appendChild(b);
+    }
     scrollLog();
+    queueCoach(c, card, gen);
   } catch {}
 }
 
@@ -504,6 +573,7 @@ function renderHome() {
   $("#levelSel").value = S.level;
   $("#rateSel").value = String(S.rate);
   $("#bargeChk").checked = S.bargeIn;
+  $("#corrChk").checked = S.voiceCorr;
 }
 function renderVoicePicker() {
   const sel = $("#voiceSel"); if (!S.scene) return;
@@ -537,9 +607,11 @@ function wire() {
   $("#levelSel").onchange = (e) => { S.level = e.target.value; store.set("level", S.level); };
   $("#rateSel").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); };
   $("#bargeChk").onchange = (e) => { S.bargeIn = e.target.checked; store.set("bargeIn", S.bargeIn); };
+  $("#corrChk").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk2").checked = S.voiceCorr; };
+  $("#corrChk2").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk").checked = S.voiceCorr; if (!S.voiceCorr) coachQ.length = 0; };
   $("#voiceSel").onchange = (e) => { S.voices[S.scene.id] = e.target.value; store.set("voices", S.voices); };
   $("#voiceTry").onclick = () => { if (S.state === "idle") return; speakSentence("Hi, this is how I sound. Does this voice work for you?", S.gen); };
-  $("#settingsBtn").onclick = () => { renderVoicePicker(); $("#settings").hidden = !$("#settings").hidden; };
+  $("#settingsBtn").onclick = () => { renderVoicePicker(); $("#corrChk2").checked = S.voiceCorr; $("#settings").hidden = !$("#settings").hidden; };
   let taps = 0, tt = null;
   $("#sceneName").onclick = () => { taps++; clearTimeout(tt); tt = setTimeout(() => (taps = 0), 1200); if (taps >= 5) { taps = 0; $("#debug").hidden = !$("#debug").hidden; renderDebug(); } };
   if (location.hash === "#debug") $("#debug").hidden = false;

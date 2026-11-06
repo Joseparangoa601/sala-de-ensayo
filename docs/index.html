@@ -53,6 +53,7 @@
         <label for="rateSel">Velocidad de la voz</label>
         <select id="rateSel"><option value="-15">Más lenta</option><option value="-8">Un poco lenta</option><option value="0">Natural</option><option value="8">Un poco rápida</option></select>
         <label class="check"><input type="checkbox" id="bargeChk"> Puedo interrumpir al personaje hablando encima</label>
+        <label class="check"><input type="checkbox" id="corrChk"> Decir las correcciones en voz alta (después de que el personaje habla)</label>
       </div>
     </details>
   </div>
@@ -67,6 +68,7 @@
   <div id="settings" class="settings" hidden>
     <label for="voiceSel">Voz de este personaje</label>
     <div class="row2"><select id="voiceSel"></select><button class="ghost" id="voiceTry">Probar</button></div>
+    <label class="check"><input type="checkbox" id="corrChk2"> Decir las correcciones en voz alta</label>
   </div>
   <div class="notice" id="notice" role="status" hidden></div>
   <div class="logwrap" id="logWrap"><div class="log" id="log" aria-live="polite"></div></div>
