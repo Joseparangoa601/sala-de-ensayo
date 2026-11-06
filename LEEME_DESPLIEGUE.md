@@ -4,13 +4,11 @@ Los pasos marcados **José** los haces tú, porque tocan cuentas o claves. Los m
 
 ## 1. Proyecto de Supabase
 **Hecho (Claude, 6-nov):**
-- organización **Personal**, en plan Free y separada de «Comercializador»;
-- proyecto `sala-de-ensayo`, ref `lheriexqdxfogzwrcctb`, región Americas;
-- las tablas nuevas no se exponen solas y RLS se activa automáticamente;
+- proyecto `sala-de-ensayo` en la cuenta **joseparangoa@gmail.com**, ref `srdpcfpqdapdaydhdbjs`, región us-east-1 (East US);
 - `docs/config.js` ya tiene la URL y la clave publishable.
 
 **Te toca (José), porque llevan contraseña:**
-1. Abre https://supabase.com/dashboard/project/lheriexqdxfogzwrcctb/auth/users → **Add user → Create new user**: tu correo y una contraseña, con **Auto Confirm User** marcado.
+1. Abre https://supabase.com/dashboard/project/srdpcfpqdapdaydhdbjs/auth/users → **Add user → Create new user**: tu correo y una contraseña, con **Auto Confirm User** marcado.
 2. Ve a **Authentication → Sign In / Providers → Email** y desactiva **Allow new users to sign up**.
 3. La contraseña de la base de datos la generó Supabase y no la necesitas para esta app. Si algún día la necesitas, se cambia en **Project Settings → Database**.
 
@@ -35,7 +33,7 @@ ALLOWED_ORIGINS=https://joseparangoa601.github.io,http://localhost:5173
 npx supabase login
 ```
 ```bash
-npx supabase link --project-ref lheriexqdxfogzwrcctb
+npx supabase link --project-ref srdpcfpqdapdaydhdbjs
 ```
 ```bash
 npx supabase secrets set --env-file supabase/.env.secrets
