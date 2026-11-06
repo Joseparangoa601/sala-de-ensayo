@@ -1,0 +1,9 @@
+# Secretos: nunca al repositorio
+supabase/.env*
+.env*
+supabase/.temp/
+supabase/.branches/
+.claude/
+
+# Notas internas con datos de cuentas: no van al repo público
+TRASPASO_*.md

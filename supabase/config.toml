@@ -1,0 +1,10 @@
+project_id = "sala-de-ensayo"
+
+[functions.token-azure]
+verify_jwt = true
+
+[functions.chat]
+verify_jwt = true
+
+[functions.corregir]
+verify_jwt = true
