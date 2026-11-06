@@ -2,12 +2,17 @@
 
 Los pasos marcados **José** los haces tú, porque tocan cuentas o claves. Los marcados **Claude** los hago yo cuando me des el sí.
 
-## 1. Proyecto de Supabase (José)
-1. En supabase.com → **New project**. Nombre: `sala-de-ensayo`, región **East US (North Virginia)**, que queda cerca de Azure `eastus`.
-   - El plan gratis permite 2 proyectos activos. Si ya tienes 2, avísame antes.
-2. **Authentication → Users → Add user → Create new user**: tu correo y una contraseña, con **Auto Confirm User** marcado.
-3. **Authentication → Sign In / Providers → Email**: desactiva **Allow new users to sign up**. Así nadie más puede crear una cuenta.
-4. **Project Settings → API**: copia la **Project URL**, la **anon / publishable key** y el **Project ref** (el código de la URL). Pásamelos: no son secretos y van en `docs/config.js`.
+## 1. Proyecto de Supabase
+**Hecho (Claude, 6-nov):**
+- organización **Personal**, en plan Free y separada de «Comercializador»;
+- proyecto `sala-de-ensayo`, ref `lheriexqdxfogzwrcctb`, región Americas;
+- las tablas nuevas no se exponen solas y RLS se activa automáticamente;
+- `docs/config.js` ya tiene la URL y la clave publishable.
+
+**Te toca (José), porque llevan contraseña:**
+1. Abre https://supabase.com/dashboard/project/lheriexqdxfogzwrcctb/auth/users → **Add user → Create new user**: tu correo y una contraseña, con **Auto Confirm User** marcado.
+2. Ve a **Authentication → Sign In / Providers → Email** y desactiva **Allow new users to sign up**.
+3. La contraseña de la base de datos la generó Supabase y no la necesitas para esta app. Si algún día la necesitas, se cambia en **Project Settings → Database**.
 
 ## 2. Secretos (José, en una terminal **Git Bash** dentro de esta carpeta)
 Crea el archivo `supabase/.env.secrets`, que está excluido de git. La clave de Azure va directo del comando `az` al archivo, sin mostrarse en pantalla:
@@ -30,7 +35,7 @@ ALLOWED_ORIGINS=https://joseparangoa601.github.io,http://localhost:5173
 npx supabase login
 ```
 ```bash
-npx supabase link --project-ref TU_PROJECT_REF
+npx supabase link --project-ref lheriexqdxfogzwrcctb
 ```
 ```bash
 npx supabase secrets set --env-file supabase/.env.secrets

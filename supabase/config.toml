@@ -1,10 +1,12 @@
 project_id = "sala-de-ensayo"
 
+# Con las claves nuevas de Supabase (sb_publishable_) la verificación JWT de la puerta
+# no aplica; cada función valida la sesión de José por dentro (requireJose).
 [functions.token-azure]
-verify_jwt = true
+verify_jwt = false
 
 [functions.chat]
-verify_jwt = true
+verify_jwt = false
 
 [functions.corregir]
-verify_jwt = true
+verify_jwt = false

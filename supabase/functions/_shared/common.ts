@@ -49,7 +49,7 @@ export async function requireJose(
   const auth = req.headers.get("authorization") ?? "";
   const sb = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
+    Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
     { global: { headers: { Authorization: auth } } },
   );
   const { data, error } = await sb.auth.getUser();
