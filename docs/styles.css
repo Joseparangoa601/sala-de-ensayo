@@ -335,6 +335,8 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 
 /* Botones de la práctica */
 .stage-act{display:flex;gap:8px}
+.listo{padding:0 22px;border-radius:999px}
+@media (hover:hover){.listo::after{content:" · espacio";font-weight:500;font-size:.8em}}
 
 /* Pantallas anchas o bajas: el micrófono va en una franja y la conversación queda con el espacio */
 @media (min-width:700px),(max-height:640px){

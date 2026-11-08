@@ -55,6 +55,10 @@ function setState(st, caption) {
   $("#pauseBtn").textContent = st === "paused" ? "Continuar" : "Pausa";
   $("#pauseBtn").hidden = st === "idle" || noMic;   // sin sesión de voz no hay nada que pausar
   $("#endBtn").hidden = st === "idle";
+  const conPartes = st === "listening" && turno.partes.length > 0;
+  $("#listoBtn").hidden = !(st === "hearing" || conPartes);
+  if (conPartes) { $("#stateLabel").textContent = "Sigue o toca Listo"; $("#live").textContent = turno.partes.join(" "); }
+  else if (st === "hearing" && modoManual()) $("#stateLabel").textContent = "Te escucho… toca Listo al terminar";
 }
 // iPhone: con el teclado abierto la altura útil es la del viewport visual, no la de la pantalla
 function fitViewport() {
@@ -391,9 +395,14 @@ function onFrame(probs, frame) {
   }
 }
 
+// El turno en curso. En modo manual cada tramo de voz se suma a «partes» y nada se envía hasta tocar Listo.
+const turno = { partes: [], cerrando: false, segmento: null };
+function modoManual() { return !!S.scene && store.get(S.scene.prep ? "manualSim" : "manualConv", !!S.scene.prep); }
+
 function onSpeechStart() {
-  if (S.state === "paused" || S.state === "idle") return;
-  bargeFrames = 0;                       // sin interrupción también se abre: si sigues hablando al terminar el personaje, cuenta
+  if (S.state === "paused" || S.state === "idle" || turno.cerrando) return;
+  if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
+  bargeFrames = 0;                      // sin interrupción también se abre: si sigues hablando al terminar el personaje, cuenta
   openStt();
   for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; }
   if (S.state !== "speaking") setState("hearing", "");
@@ -418,10 +427,11 @@ async function onSpeechEnd() {
   if (!stt) return;
   const tEnd = now();
   const sess = stt, scene = S.scene;
-  const text = await closeStt();
+  turno.segmento = closeStt();           // si tocas Listo ahora, espera a este tramo
+  const text = await turno.segmento;
   if (sess.discard) return;
   if (S.state === "paused" || S.scene !== scene) return;   // pausaste o saliste mientras se cerraba el reconocimiento
-  if (!text) { if (S.state === "hearing") setState("listening", "No te entendí. Repite, por favor."); return; }
+  if (!text) { if (S.state === "hearing") setState("listening", turno.partes.length ? undefined : "No te entendí. Repite, por favor."); return; }
   if (sess.overTTS && !S.bargeIn && S.state === "speaking") return;   // hablaste encima con la interrupción apagada
   // Eco: solo si la voz empezó con el parlante sonando. Una respuesta normal puede repetir palabras de la pregunta.
   if (sess.overTTS) {
@@ -432,7 +442,31 @@ async function onSpeechEnd() {
       return;
     }
   }
+  if (modoManual()) {
+    if (S.state === "speaking") return;  // el personaje seguía hablando: tu respuesta aún no ha empezado
+    turno.partes.push(text);
+    if (S.state === "hearing") setState("listening");
+    return;
+  }
   if (S.retry && handleRetry(text)) return;
+  userSaid(text, { speechEnd: tEnd, sttDone: now() });
+}
+
+// Botón Listo: cierra el turno ya, sin esperar el silencio
+async function cerrarTurno() {
+  if (turno.cerrando || !S.scene || S.state === "paused") return;
+  if (!modoManual() && !stt) return;    // el cierre automático ya va en camino
+  const scene = S.scene, tEnd = now();
+  turno.cerrando = true;
+  setState("thinking", "");
+  let resto = "";
+  if (stt) { const sess = stt; resto = await closeStt(); if (sess.discard) resto = ""; }
+  await turno.segmento;
+  const text = [...turno.partes, resto].filter(Boolean).join(" ").trim();
+  turno.partes = []; turno.cerrando = false;
+  if (S.scene !== scene || S.state !== "thinking") return;   // pausaste o saliste mientras se cerraba
+  if (!text) { setState("listening", "No te entendí. Repite, por favor."); return; }
+  if (S.retry && handleRetry(text)) { setState("listening", ""); return; }
   userSaid(text, { speechEnd: tEnd, sttDone: now() });
 }
 
@@ -446,7 +480,7 @@ function openStt() {
   const rec = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromStreamInput(push));
   const sess = { rec, push, parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
   sess.done = new Promise((resolve) => { sess.resolve = resolve; });
-  rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...sess.parts, sess.partial].join(" "); };
+  rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
   rec.recognized = (_s, e) => { if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) sess.parts.push(e.result.text); sess.partial = ""; };
   rec.canceled = (_s, e) => {
     if (e.reason === SDK.CancellationReason.Error) { sess.error = e.errorDetails || String(e.errorCode); logDebug("STT error: " + sess.error); }
@@ -482,6 +516,7 @@ function similarity(a, b) {
 /* ---------------- un turno ---------------- */
 async function userSaid(text, m = {}) {
   stopSpeaking();                         // invalida cualquier respuesta previa
+  turno.partes = [];                      // si escribes, lo escrito reemplaza lo dicho a medias
   notice("");
   S.lastCoachText = "";
   const gen = S.gen;
@@ -763,6 +798,7 @@ async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
   coachQ.length = 0;
   S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.recapRender = null; S.lastCoachText = "";
+  turno.partes = []; turno.cerrando = false; turno.segmento = null;
   $("#log").innerHTML = briefHTML(scene);
   $("#sceneName").textContent = scene.title;
   $("#sceneWho").textContent = [scene.name, scene.who].filter(Boolean).join(" · ");
@@ -772,7 +808,7 @@ async function startScene(scene) {
   $("#backBtn").setAttribute("aria-label", scene.prep ? "Terminar el simulacro" : scene.returnTo ? "Volver a la lección" : "Volver a las escenas");
   notice("");
   show("talk");
-  setState("idle", START_CAPTION);
+  setState("idle", modoManual() ? "Toca el círculo para empezar. Aquí tú decides cuándo terminas: habla con calma y toca Listo." : START_CAPTION);
 }
 
 async function begin() {
@@ -1095,11 +1131,27 @@ function wire() {
   };
   $("#pauseBtn").onclick = () => (S.state === "paused" ? resumeSession() : pauseSession(""));
   $("#backBtn").onclick = () => {
+    if (turno.partes.length && S.sesion) {   // terminaste sin tocar Listo: esa respuesta también cuenta
+      const dicho = turno.partes.join(" "); turno.partes = [];
+      S.history.push({ role: "user", content: dicho }); addBubble("user", dicho);
+      S.sesion.turnos++; S.sesion.palabras_jose += countWords(dicho);
+    }
     pauseSession(""); const scene = S.scene, ses = S.sesion, list = S.corrections || [], from = scene?.returnTo, hist = S.history || []; S.scene = null; S.sesion = null; S.retry = null;
     const leave = () => { if (from && window.Estudio) Estudio.reopen(from, ses?.turnos > 0); else { renderHome(); show("home"); } };
     if (scene && ses?.turnos > 0) showRecap(scene, ses, list, leave, hist); else leave();
   };
   $("#endBtn").onclick = () => $("#backBtn").click();   // termina la práctica y lleva al resumen
+  $("#listoBtn").onclick = cerrarTurno;
+  document.addEventListener("keydown", (e) => {          // en computador, la barra espaciadora es Listo
+    if (e.code !== "Space" || e.repeat || $("#talk").hidden || $("#listoBtn").hidden) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    e.preventDefault();
+    cerrarTurno();
+  });
+  $("#manualChk").onchange = (e) => {
+    store.set(S.scene?.prep ? "manualSim" : "manualConv", e.target.checked);
+    if (!e.target.checked && turno.partes.length) cerrarTurno();   // si vuelves a automático no se pierde lo que ya dijiste
+  };
   $("#reviewBtn").onclick = () => { if (window.Repaso) Repaso.open(); };
   $("#typeForm").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1139,7 +1191,7 @@ function wire() {
       onEnd: () => { done(); if (S.state === "listening") { try { vadNode?.start(); } catch {} } },
     });
   };
-  $("#settingsBtn").onclick = () => { renderVoicePicker(); $("#rateSel2").value = String(S.rate); $("#corrChk2").checked = S.voiceCorr; $("#settings").hidden = !$("#settings").hidden; };
+  $("#settingsBtn").onclick = () => { renderVoicePicker(); $("#rateSel2").value = String(S.rate); $("#corrChk2").checked = S.voiceCorr; $("#manualChk").checked = modoManual(); $("#settings").hidden = !$("#settings").hidden; };
   let taps = 0, tt = null;
   $("#sceneName").onclick = () => { taps++; clearTimeout(tt); tt = setTimeout(() => (taps = 0), 1200); if (taps >= 5) { taps = 0; $("#debug").hidden = !$("#debug").hidden; renderDebug(); } };
   if (location.hash === "#debug") $("#debug").hidden = false;
