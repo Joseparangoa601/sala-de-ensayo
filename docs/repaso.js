@@ -100,7 +100,7 @@ function render() {
     if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
     h += `<button class="replay" id="rcListen">${IC.play}Escuchar</button></div>`;
     const prev = Datos.preview(c);
-    h += `<p class="rc-q small">¿Qué tan bien te salió?</p><div class="rates">` +
+    h += `<p class="rc-q small">¿Qué tan bien te salió?</p><p class="muted small" style="margin-top:-8px">Elige cómo te salió; el tiempo indica cuándo vuelve esta frase.</p><div class="rates">` +
       [1, 2, 3, 4].map((r) => `<button class="rate ${r === s ? "sug" : ""}" data-r="${r}"><span>${RATING[r]}</span><small>${fmtWhen(prev[r])}</small></button>`).join("") +
       `</div><button class="linklike" id="rcArchive">Ya no la necesito: quitar del cuaderno</button>`;
   }
