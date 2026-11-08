@@ -222,7 +222,7 @@ async function playNext() {
   if (!item) { player.playing = null; if (player.onIdle) player.onIdle(); return; }
   player.playing = item;
   const buf = await item.ready;
-  if (item.gen !== S.gen) { player.playing = null; if (item.preview) item.onEnd?.(); return playNext(); }
+  if (item.gen !== S.gen) { player.playing = null; item.onEnd?.(); return playNext(); }   // quien la espera no debe quedarse colgado
   // Probar una voz con la voz del sistema engañaría: se avisa que no cargó
   if (item.preview && buf && buf.fallback) { notice("No pude cargar esa voz. Intenta de nuevo o elige otra."); item.onEnd?.(); return playNext(); }
   if (S.turnMetrics && !S.turnMetrics.firstAudio && !item.coach) { S.turnMetrics.firstAudio = now(); finishMetrics(); }
@@ -301,14 +301,17 @@ function maybeCoach() {
   });
   player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
 }
+let replayNow = null;   // la corrección que ya está sonando: otro toque en la misma tarjeta no la repite
 function replayCoach(c, card) {
   unlockAudio();   // viene de un toque; si Azure no está, speakItem cae a la voz del sistema
   const parts = coachParts(c); if (!parts.length) return;
   const plain = parts.map((p) => p[1]).join(" ");
+  if (replayNow && replayNow.card === card && replayNow.gen === S.gen && Date.now() < replayNow.until) return;
   S.lastCoachText = plain;
   const gen = S.gen;
+  replayNow = { card, gen, until: Date.now() + 12000 + plain.length * 150 };
   speakItem({ coach: true, gen, text: plain, plain, parts, ssml: coachSsml(parts),
-    onStart: () => card.classList.add("reading"), onEnd: () => card.classList.remove("reading") });
+    onStart: () => card.classList.add("reading"), onEnd: () => { card.classList.remove("reading"); replayNow = null; } });
   player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
 }
 
@@ -1133,11 +1136,20 @@ async function ensureVoice() {
   await azureToken();
   if (!AZ.synth) makeSynth();
 }
+let enNow = null;   // lo que suena por un botón «Escuchar»: tocar varias veces no acumula audio ni gasta voz de más
 function speakEN(text, opts = {}) {
+  const key = `${text}|${opts.voice || ""}|${opts.rate || ""}`;
+  if (enNow && enNow.gen === S.gen) {
+    if (enNow.key === key && Date.now() < enNow.until) return enNow.promise;
+    stopSpeaking();   // otra frase, o una que quedó colgada: reemplaza en lugar de ponerse en fila
+  }
   unlockAudio();                          // con el AudioContext suspendido el audio nunca termina y la cola queda bloqueada
   const voice = opts.voice || "en-US-AvaMultilingualNeural";
   const doc = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${opts.rate || "-8%"}">${escXml(text)}</prosody></voice></speak>`;
-  return new Promise((resolve) => speakItem({ text, gen: S.gen, ssml: doc, coach: true, plain: text, onEnd: resolve }));
+  const now_ = { key, gen: S.gen, until: Date.now() + 12000 + text.length * 150 };
+  now_.promise = new Promise((resolve) => speakItem({ text, gen: S.gen, ssml: doc, coach: true, plain: text, onEnd: () => { if (enNow === now_) enNow = null; resolve(); } }));
+  enNow = now_;
+  return now_.promise;
 }
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
