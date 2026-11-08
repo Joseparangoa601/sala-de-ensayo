@@ -209,6 +209,21 @@ function unlockAudio() {
   const b = ctx.createBuffer(1, 1, 22050); const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0);
   try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
 }
+// La voz de Azure no depende de haber conversado antes: se prepara aquí y, si la conexión quedó vieja, se reintenta una vez.
+async function sintetizar(item) {
+  for (let intento = 0; ; intento++) {
+    try {
+      await azureToken();
+      if (!AZ.synth) makeSynth();
+      return await azureSynthSsml(item.ssml, item.text.length);
+    } catch (e) {
+      if (intento || e?.code === "sin_horas") throw e;
+      logDebug("TTS reintento: " + (e?.detail || e?.code));
+      try { AZ.synth?.close(); } catch {}
+      AZ.synth = null; AZ.exp = 0;
+    }
+  }
+}
 // Encola una frase: arranca la síntesis ya y reproduce en orden.
 function speakSentence(text, gen) {
   speakItem({ text, gen, ssml: ssml(text, voiceFor(S.scene)) });
@@ -216,7 +231,7 @@ function speakSentence(text, gen) {
 function speakItem(item) {
   // Tope de 8 s: una síntesis colgada no debe dejar la cola bloqueada para siempre
   item.ready = Promise.race([
-    azureSynthSsml(item.ssml, item.text.length).then((ab) => ctx.decodeAudioData(ab.slice(0))),
+    sintetizar(item).then((ab) => ctx.decodeAudioData(ab.slice(0))),
     new Promise((_, rej) => setTimeout(() => rej({ code: "tts", detail: "sin respuesta en 8 s" }), 8000)),
   ])
     .catch((e) => { logDebug("TTS Azure falló → voz del sistema: " + (e.detail || e.code)); return { fallback: true }; });
