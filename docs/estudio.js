@@ -1392,8 +1392,9 @@ async function progress() {
 // practiced: la conversación tuvo turnos (lo indica app.js); solo entonces cuenta como hecha
 /* ---------------- cambiar contraseña ---------------- */
 function passwordScreen(forced = false) {
-  const atras = forced ? () => passwordScreen(true) : () => Sala.backHome();
-  screen("Cambiar contraseña", forced ? "Paso obligatorio" : "", atras, forced ? " " : "‹ Inicio");
+  // En el paso obligatorio la salida es cerrar la sesión: nadie queda encerrado en esta pantalla.
+  const atras = forced ? () => document.getElementById("signOut")?.click() : () => Sala.backHome();
+  screen("Cambiar contraseña", forced ? "Paso obligatorio" : "", atras, forced ? "‹ Salir" : "‹ Inicio");
   body(`${forced ? `<div class="notice" data-kind="info">Entraste con la clave inicial. Elige una contraseña solo tuya para seguir.</div>` : `<label for="pwOld">Contraseña actual</label><input id="pwOld" type="password" autocomplete="current-password">`}
     <label for="pwNew">Contraseña nueva (mínimo 8 caracteres)</label><input id="pwNew" type="password" autocomplete="new-password" minlength="8">
     <label for="pwNew2">Repite la contraseña nueva</label><input id="pwNew2" type="password" autocomplete="new-password">
