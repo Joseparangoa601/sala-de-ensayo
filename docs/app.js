@@ -148,6 +148,7 @@ async function azureToken(force = false) {
   const r = await fnFetch("token-azure");
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
+    if (j.error === "sin_horas") throw { code: "sin_horas", motivo: j.motivo };
     throw { code: "azure_token", status: j.status || r.status };
   }
   const j = await r.json();
@@ -509,7 +510,7 @@ async function characterTurn(gen) {
   };
   try {
     const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.level }, ctl.signal);
-    if (!r.ok) { const j = await r.json().catch(() => ({})); throw { code: j.error || "chat", status: j.status || r.status }; }
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw { code: j.error || "chat", status: j.status || r.status, motivo: j.motivo }; }
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
     while (true) {
       const { value, done } = await reader.read();
@@ -543,7 +544,7 @@ async function characterTurn(gen) {
     if (!player.playing && !player.queue.length) { setState("listening", ""); maybeCoach(); }
   } catch (e) {
     if (e?.name === "AbortError" || gen !== S.gen) return;
-    const msg = {
+    const msg = e.code === "sin_horas" ? paseMsg(e.motivo) : {
       rate_limited: "Vas muy rápido: espera unos segundos.",
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
       anthropic: "El personaje no respondió. Repite tu frase.",
@@ -809,10 +810,27 @@ function openScene() {
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   S.history.push({ role: "assistant", content: S.scene.open });
   addBubble("assistant", S.scene.open);
+  if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
+}
+const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";
+// Muestra lo que queda del pase en Tú. Sin fila no hay tope y no se muestra nada.
+async function paintPase() {
+  const tile = $("#paseTile");
+  if (!tile || !S.session) return;
+  try {
+    const { data } = await sb.from("pases").select("segundos_total,segundos_usados,vence").maybeSingle();
+    S.pase = data || null;
+    if (!data) { tile.style.display = "none"; return; }
+    const seg = Math.max(0, data.segundos_total - data.segundos_usados), h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60);
+    const fin = new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "short" });
+    $("#paseNow").textContent = Date.now() >= Date.parse(data.vence) ? "Tu pase ya venció" : `Te quedan ${h ? h + " h " : ""}${m} min de voz · hasta el ${fin}`;
+    tile.style.display = "";
+  } catch { tile.style.display = "none"; }
 }
 function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
-  if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
+  if (e?.code === "sin_horas") notice(paseMsg(e.motivo));
+  else if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
   else notice("La voz no está disponible por ahora. Puedes escribir abajo.");
 }
 // Empezaste escribiendo y ahora quieres hablar
@@ -914,6 +932,7 @@ function renderHome() {
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
   const gs = window.Estudio?.goalsSummary?.() || "";
   $("#goalsNow").textContent = gs || "Para qué quieres el inglés";
+  paintPase();
   $("#goalsNudge").hidden = !!gs || !store.get("perfilSynced", false);
   $("#rateSel").value = String(S.rate);
   $("#bargeChk").checked = S.bargeIn;
@@ -1015,6 +1034,14 @@ function wire() {
     for (const t of document.querySelectorAll(".tabpanel")) t.hidden = t.dataset.tab !== b.dataset.tab;
     $("#homeBody").scrollTop = 0;
   };
+  $("#forgotBtn").onclick = async () => {
+    const email = $("#email").value.trim().toLowerCase(), err = $("#loginErr");
+    if (!email) { err.textContent = "Escribe tu correo y vuelve a tocar «Olvidé mi contraseña»."; return; }
+    const btn = $("#forgotBtn"); btn.disabled = true;
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    btn.disabled = false;
+    err.textContent = error && error.status === 429 ? "Ya pediste varios correos. Espera un rato e inténtalo de nuevo." : "Si ese correo tiene cuenta, te llegará un enlace para crear una contraseña nueva.";
+  };
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     $("#loginErr").textContent = "";
@@ -1111,6 +1138,10 @@ async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   if (!configured()) { show("setup"); return; }
   if (!SDK || !window.vad || !window.supabase) { show("setup"); $("#setupTitle").textContent = "No se pudo abrir"; $("#setupMsg").textContent = "No cargaron las librerías de la app. Revisa tu conexión y vuelve a abrir la app."; return; }
+  // Enlace del correo de bienvenida o de recuperación: se lee antes de que la librería limpie la dirección
+  const enlace = location.hash;
+  if (/type=(invite|recovery)/.test(enlace)) store.set("forzarClave", "nueva");
+  if (/error_code=/.test(enlace)) { history.replaceState(null, "", location.pathname); setTimeout(() => { const e = $("#loginErr"); if (e) e.textContent = "Ese enlace ya no sirve. Escribe tu correo y toca «Olvidé mi contraseña» para recibir otro."; }, 300); }
   sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
   if (window.Datos) { Datos.init(sb); Datos.onChange(() => { if (!$("#home").hidden) renderReviewCount(); }); }
   const { data } = await sb.auth.getSession();
@@ -1127,7 +1158,7 @@ async function boot() {
     if (fromLogin) { renderHome(); show("home"); }
     if (_ev === "SIGNED_IN" && !S.scene) { window.Estudio?.syncPerfil?.(); window.Datos?.sync(); }
   });
-  if (S.session) { renderHome(); show("home"); window.Estudio?.syncPerfil?.(); if (store.get("forzarClave")) { const pedir = () => window.Estudio?.password(true); document.readyState === "complete" ? pedir() : addEventListener("load", pedir, { once: true }); } } else show("login");
+  if (S.session) { renderHome(); show("home"); window.Estudio?.syncPerfil?.(); if (store.get("forzarClave")) { const pedir = () => window.Estudio?.password(store.get("forzarClave") === "nueva" ? "nueva" : true); document.readyState === "complete" ? pedir() : addEventListener("load", pedir, { once: true }); } } else show("login");
   // ?leccion=id viene de tocar una notificación con la app cerrada
   const lid = new URLSearchParams(location.search).get("leccion");
   if (lid) { history.replaceState(null, "", location.pathname); if (S.session && window.Estudio) Estudio.open(lid); }

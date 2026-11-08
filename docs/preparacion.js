@@ -27,6 +27,7 @@ const friendly = {
   sin_cargo: "Escribe el cargo para el que te preparas.",
   muy_corta: "Esa respuesta es muy corta para evaluarla.",
   rate_limited: "Vas muy rápido. Espera un minuto e inténtalo de nuevo.",
+  sin_horas: "Tu pase ya no está vigente.",
 };
 const failMsg = (j) => friendly[j?.error] || "No pude completar eso. Revisa tu conexión e inténtalo de nuevo.";
 
