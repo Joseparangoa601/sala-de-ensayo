@@ -334,6 +334,7 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 .logwrap>.pad{overflow:visible}
 
 /* Botones de la práctica */
+.retry{background:color-mix(in srgb,var(--accent) 8%,transparent);border-top-style:solid;border-radius:0 0 8px 8px;padding:8px}
 .stage-act{display:flex;gap:8px}
 .listo{padding:0 22px;border-radius:999px}
 @media (hover:hover){.listo::after{content:" · espacio";font-weight:500;font-size:.8em}}

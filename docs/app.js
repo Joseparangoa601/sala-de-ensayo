@@ -274,15 +274,41 @@ function coachParts(c) {
   const p = [];
   if (!c.ok && c.better) { p.push(["es", "Mejor di:"], ["en", c.better]); }
   if (c.natural) { p.push(["es", c.ok ? "Está bien. Un nativo diría:" : "Y más natural:"], ["en", c.natural]); }
-  if (c.tip) p.push(["es", c.tip]);
+  if (c.tip) p.push(...trozosTip(c.tip));
   return p;
 }
-function coachSsml(parts) {
-  const body = parts.map(([lang, t]) => lang === "es"
-    ? `<lang xml:lang="es-MX">${escXml(t)}</lang><break time="200ms"/>`
-    : `<prosody rate="-12%">${escXml(t)}</prosody><break time="300ms"/>`).join("");
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-MX"><voice name="${coachVoice()}">${body}</voice></speak>`;
+// La explicación mezcla español con frases en inglés entre comillas: cada trozo se lee en su idioma.
+// Sin comillas leídas como signos: la ' tras un número se pronunciaba «minutos».
+function trozosTip(tip) {
+  const t = String(tip), out = [], letra = (c) => !!c && /[A-Za-zÀ-ÿ0-9]/.test(c);
+  let es = "", i = 0;
+  const cierraEs = () => { const s = es.replace(/^[\s,.;:]+/, "").trim(); if (/[A-Za-zÀ-ÿ]/.test(s)) out.push(["es", s]); es = ""; };
+  while (i < t.length) {
+    const c = t[i], par = { '"': '"', "“": "”", "«": "»" }[c];
+    let fin = -1;
+    if (par) fin = t.indexOf(par, i + 1);
+    else if ((c === "'" || c === "‘") && !letra(t[i - 1])) {
+      for (let j = i + 1; j < t.length; j++) if ((t[j] === "'" || t[j] === "’") && !letra(t[j + 1])) { fin = j; break; }   // friend's no cierra
+    }
+    if (fin > i + 1) {
+      const cita = t.slice(i + 1, fin).trim();
+      if (/[áéíóúñ¿¡]/i.test(cita)) es += " " + cita + " ";   // lo citado está en español
+      else { cierraEs(); out.push(["en", cita]); }
+      i = fin + 1;
+    } else { es += c; i++; }
+  }
+  cierraEs();
+  return out;
 }
+// Un bloque <voice> por trozo: garantiza que cada uno salga en su idioma, también a mitad de frase.
+function coachSsml(parts) {
+  const v = coachVoice();
+  const body = parts.map(([lang, t]) => `<voice name="${v}">${lang === "es"
+    ? `<lang xml:lang="es-MX">${escXml(t)}</lang><break time="120ms"/>`
+    : `<lang xml:lang="en-US"><prosody rate="-12%">${escXml(t)}</prosody></lang><break time="200ms"/>`}</voice>`).join("");
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">${body}</speak>`;
+}
+const AVISO_COACH = "Corrección · toca el círculo para saltarla";
 const coachQ = [];
 function queueCoach(c, card, gen) {
   if (!S.voiceCorr) return;
@@ -302,7 +328,7 @@ function maybeCoach() {
   const gen = S.gen;
   speakItem({
     coach: true, gen, text: plain, plain, parts: job.parts, ssml: coachSsml(job.parts),
-    onStart: () => { job.card.classList.add("reading"); job.card.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("#live").textContent = ""; },
+    onStart: () => { job.card.classList.add("reading"); job.card.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("#live").textContent = ""; $("#stateLabel").textContent = AVISO_COACH; },
     onEnd: () => { job.card.classList.remove("reading"); },
   });
   player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
@@ -317,7 +343,7 @@ function replayCoach(c, card) {
   const gen = S.gen;
   replayNow = { card, gen, until: Date.now() + 12000 + plain.length * 150 };
   speakItem({ coach: true, gen, text: plain, plain, parts, ssml: coachSsml(parts),
-    onStart: () => card.classList.add("reading"), onEnd: () => { card.classList.remove("reading"); replayNow = null; } });
+    onStart: () => { card.classList.add("reading"); $("#stateLabel").textContent = AVISO_COACH; }, onEnd: () => { card.classList.remove("reading"); replayNow = null; } });
   player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
 }
 
@@ -389,7 +415,7 @@ function onFrame(probs, frame) {
   ring.push(frame); if (ring.length > 4) ring.shift();
   if (stt && !stt.closed) { stt.push.write(f32ToI16(frame)); stt.frames++; }
   // Interrupción: solo si la voz es sostenida (evita que el eco del parlante corte al personaje)
-  if (S.state === "speaking" && stt && S.bargeIn) {
+  if (S.state === "speaking" && stt && S.bargeIn && !player.playing?.coach) {
     bargeFrames = probs.isSpeech > 0.85 ? bargeFrames + 1 : Math.max(0, bargeFrames - 1);
     if (bargeFrames >= 3) { bargeFrames = 0; logDebug("Interrupción"); stopSpeaking(); setState("hearing", ""); }
   }
@@ -402,6 +428,7 @@ function modoManual() { return !!S.scene && store.get(S.scene.prep ? "manualSim"
 function onSpeechStart() {
   if (S.state === "paused" || S.state === "idle" || turno.cerrando) return;
   if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
+  if (player.playing?.coach) return;     // repetir en voz baja o un ruido no corta la corrección; se salta tocando el círculo
   bargeFrames = 0;                      // sin interrupción también se abre: si sigues hablando al terminar el personaje, cuenta
   openStt();
   for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; }
@@ -442,13 +469,13 @@ async function onSpeechEnd() {
       return;
     }
   }
+  if (S.retry && !turno.partes.length && handleRetry(text)) return;   // repetir una frase no necesita Listo
   if (modoManual()) {
     if (S.state === "speaking") return;  // el personaje seguía hablando: tu respuesta aún no ha empezado
     turno.partes.push(text);
     if (S.state === "hearing") setState("listening");
     return;
   }
-  if (S.retry && handleRetry(text)) return;
   userSaid(text, { speechEnd: tEnd, sttDone: now() });
 }
 
@@ -638,11 +665,15 @@ function retryBox(card, html) {
   let box = card.querySelector(".retry");
   if (!box) { box = document.createElement("div"); box.className = "retry"; box.setAttribute("role", "status"); card.appendChild(box); }
   box.innerHTML = html;
-  scrollLog();
+  requestAnimationFrame(() => box.scrollIntoView({ block: "nearest", behavior: "smooth" }));   // la tarjeta puede no ser la última del chat
 }
 function askRetry(target, card) {
+  unlockAudio();
+  if (player.playing?.coach) { stopSpeaking(); setState("listening", ""); }   // si aún sonaba la corrección, tu turno de repetir va primero
+  if (S.state === "paused") resumeSession();
   S.retry = { target, card };
-  retryBox(card, `<b>Ahora dilo tú:</b> ${esc(target)}<span class="muted small">${vadNode ? "Dilo en voz alta cuando termine el personaje." : "Escríbelo abajo o toca el círculo para hablar."}</span>`);
+  const cuando = !vadNode ? "Escríbelo abajo o toca el círculo para hablar." : S.state === "speaking" || S.state === "thinking" ? "Dilo en voz alta cuando termine el personaje." : "Dilo en voz alta ahora. Te escucho.";
+  retryBox(card, `<b>Ahora dilo tú:</b> ${esc(target)}<span class="muted small">${cuando}</span>`);
 }
 // Devuelve false si lo dicho no era un intento de repetir: entonces sigue la conversación normal.
 function handleRetry(text) {
