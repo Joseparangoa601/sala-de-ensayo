@@ -813,19 +813,54 @@ function openScene() {
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
 }
 const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";
-// Muestra lo que queda del pase en Tú. Sin fila no hay tope y no se muestra nada.
+// Quien compró el pase ve Hoy centrado en su entrevista; el resto ve la pantalla de siempre.
+function marcarPase(hay) {
+  document.body.classList.toggle("con-pase", hay);
+  $("#prepBtn b").textContent = hay ? "Prepara tu entrevista" : "Modo entrevista";
+  $("#masTitulo").textContent = hay ? "Otras conversaciones" : "Practica también";
+  if (!hay) $("#paseHoy").hidden = true;
+}
+// Muestra lo que queda del pase en Tú y en Hoy. Sin fila no hay tope y no se muestra nada.
 async function paintPase() {
   const tile = $("#paseTile");
   if (!tile || !S.session) return;
   try {
-    const { data } = await sb.from("pases").select("segundos_total,segundos_usados,vence").maybeSingle();
+    const { data, error } = await sb.from("pases").select("segundos_total,segundos_usados,vence").maybeSingle();
+    if (error) throw error;
     S.pase = data || null;
+    store.set("conPase", !!data);
+    marcarPase(!!data);
+    renderToday();
     if (!data) { tile.style.display = "none"; return; }
     const seg = Math.max(0, data.segundos_total - data.segundos_usados), h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60);
     const fin = new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "short" });
-    $("#paseNow").textContent = Date.now() >= Date.parse(data.vence) ? "Tu pase ya venció" : `Te quedan ${h ? h + " h " : ""}${m} min de voz · hasta el ${fin}`;
+    const texto = Date.now() >= Date.parse(data.vence) ? "Tu pase ya venció" : `Te quedan ${h ? h + " h " : ""}${m} min de voz · hasta el ${fin}`;
+    $("#paseNow").textContent = texto;
+    $("#paseHoy").textContent = texto;
+    $("#paseHoy").hidden = false;
     tile.style.display = "";
   } catch { tile.style.display = "none"; }
+}
+// Botón para ver u ocultar lo escrito en los campos de contraseña
+function ojoClave(raiz) {
+  for (const campo of raiz.querySelectorAll('input[type="password"]')) {
+    const caja = document.createElement("div");
+    caja.className = "pwbox";
+    campo.replaceWith(caja);
+    const ojo = document.createElement("button");
+    ojo.type = "button";
+    ojo.className = "pweye";
+    const pinta = () => {
+      const visible = campo.type === "text", texto = visible ? "Ocultar contraseña" : "Mostrar contraseña";
+      ojo.innerHTML = `<svg aria-hidden="true"><use href="#${visible ? "i-eye-off" : "i-eye"}"/></svg>`;
+      ojo.setAttribute("aria-label", texto);
+      ojo.title = texto;
+    };
+    ojo.onclick = () => { campo.type = campo.type === "password" ? "text" : "password"; pinta(); };
+    campo.form?.addEventListener("submit", () => { campo.type = "password"; pinta(); });   // nunca queda a la vista al entrar
+    pinta();
+    caja.append(campo, ojo);
+  }
 }
 function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
@@ -932,6 +967,7 @@ function renderHome() {
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
   const gs = window.Estudio?.goalsSummary?.() || "";
   $("#goalsNow").textContent = gs || "Para qué quieres el inglés";
+  marcarPase(store.get("conPase", false));
   paintPase();
   $("#goalsNudge").hidden = !!gs || !store.get("perfilSynced", false);
   $("#rateSel").value = String(S.rate);
@@ -963,7 +999,7 @@ function renderToday() {
   const did = TODAY.practiced || store.get("practicaHoy", "") === dayKey();
   const items = [];
   if (due) items.push({ a: "review", t: `Repasa ${due} ${due === 1 ? "frase" : "frases"}`, s: "Tus errores, antes de que se olviden" });
-  if (scene) items.push({ a: "scene", done: did, t: did ? "Ya conversaste hoy" : `Conversa: ${scene.title}`, s: did ? `Si quieres más: ${scene.title}` : `Con ${scene.name}` });
+  if (scene && !document.body.classList.contains("con-pase")) items.push({ a: "scene", done: did, t: did ? "Ya conversaste hoy" : `Conversa: ${scene.title}`, s: did ? `Si quieres más: ${scene.title}` : `Con ${scene.name}` });
   const next = items.find((i) => !i.done);
   if (TODAY.lesson) items.push({ a: "lesson", t: "Sigue tu lección", s: `${TODAY.lesson.titulo || "Lección"} · paso ${TODAY.lesson.progreso?.paso || 1} de 6`, optional: true });
   el.innerHTML = items.map((i, n) => `<button class="ti ${i.done ? "done" : ""} ${i === next ? "next" : ""}" data-a="${i.a}"><span class="tick" aria-hidden="true">${i.done ? "✓" : n + 1}</span><span class="ti-t"><b>${esc(i.t)}</b><small>${esc(i.s)}</small></span>${i === next ? `<svg class="go" aria-hidden="true"><use href="#i-chev"/></svg>` : ""}</button>`).join("")
@@ -1128,6 +1164,7 @@ function wire() {
   };
   $("#goalsBtn").onclick = () => window.Estudio?.goals();
   $("#goalsNudgeBtn").onclick = () => window.Estudio?.goals();
+  ojoClave($("#loginForm"));
 }
 
 async function boot() {
@@ -1186,6 +1223,7 @@ function speakEN(text, opts = {}) {
 }
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
+  ojoClave,
   sb: () => sb, show, ensureVoice, speakEN, similarity, notice, fnFetch, store, esc,
   azure: () => ({ token: AZ.token, region: AZ.region, refresh: () => azureToken() }),
   backHome: () => {

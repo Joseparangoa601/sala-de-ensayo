@@ -34,6 +34,8 @@
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
 </svg>
 
 <section class="screen" id="splash">
@@ -67,9 +69,10 @@
     <div class="tabpanel" data-tab="hoy">
       <header class="top"><div><div class="brandline"><svg><use href="#mark"/></svg><span>Sala de Ensayo · lead10x</span></div><h1 style="margin-top:6px">Hoy</h1><span class="muted small" id="streak"></span></div></header>
       <div class="tiles one"><button class="tile" id="prepBtn"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Modo entrevista</b><small>Tu expediente, tus historias y el simulacro</small></span></button></div>
+      <p class="muted small" id="paseHoy" hidden></p>
       <div class="week" id="week"></div>
       <div class="today" id="today"></div>
-      <div class="top"><h2>Practica también</h2><button class="ghost" id="allScenes">Ver todas</button></div>
+      <div class="top"><h2 id="masTitulo">Practica también</h2><button class="ghost" id="allScenes">Ver todas</button></div>
       <div class="scenes" id="hoyScenes"></div>
       <div class="notice" id="goalsNudge" hidden><b>Primero, cuéntale a la app para qué quieres el inglés.</b> Así las conversaciones y las lecciones se ajustan a tu vida. <button class="primary wide" id="goalsNudgeBtn">Definir mis objetivos</button></div>
     </div>

@@ -26,7 +26,8 @@ button,input,select{font:inherit;color:inherit}
 button{cursor:pointer;min-height:44px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .screen{height:100%;display:flex;flex-direction:column}
-.pad{padding:20px 16px;max-width:640px;margin:0 auto;width:100%;overflow-y:auto}
+/* El ancho de lectura va en el relleno, no en el bloque: así la barra de desplazamiento queda en el borde de la ventana */
+.pad{padding:20px max(16px,calc((100% - 608px)/2));width:100%;overflow-y:auto}
 .stack{display:flex;flex-direction:column;gap:12px}
 h1{font:400 2rem/1.05 "Anton",Bahnschrift,"Arial Narrow",var(--font);margin:0;letter-spacing:.012em;text-transform:uppercase}
 .muted{color:var(--muted);margin:0}
@@ -103,7 +104,7 @@ input,select{min-height:44px;border:1px solid var(--line);border-radius:10px;bac
 .stateLabel{font-weight:650}
 .live{min-height:1.4em;max-width:640px;text-align:center;color:var(--muted);font-size:.95rem}
 .pause{background:transparent;border:1px solid var(--line);border-radius:999px;padding:0 22px}
-.typebar{display:flex;gap:8px;padding:8px 16px;background:var(--surface)}
+.typebar{display:flex;gap:8px;padding:8px max(16px,calc((100% - 608px)/2));background:var(--surface)}
 .typebar input{border-radius:22px}
 .send{width:44px;flex:none;border-radius:50%;border:0;background:var(--action);color:var(--action-ink);display:grid;place-items:center}
 /* repaso */
@@ -311,3 +312,38 @@ button:disabled{opacity:.55}
 .prep-ix span{display:flex;flex-direction:column;gap:2px}
 .prep-ix small{color:var(--muted);font-size:.8rem}
 mark.ph{background:var(--tip-bg);color:inherit;border-radius:4px;padding:0 3px;font-weight:600}
+
+/* Ver u ocultar la contraseña */
+.pwbox{position:relative}
+.pwbox input{padding-right:48px}
+.pweye{position:absolute;top:0;right:0;bottom:0;width:46px;background:none;border:0;border-radius:10px;color:var(--muted);display:grid;place-items:center}
+.pweye svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pweye:hover{color:var(--ink)}
+
+/* Quien compró el pase llegó por la entrevista: esa es la acción principal de Hoy */
+#home .notice{margin:0}
+body.con-pase #prepBtn{background:var(--action);color:var(--action-ink);border-color:var(--action);min-height:76px}
+body.con-pase #prepBtn .ic{background:rgba(20,20,20,.12);color:inherit}
+body.con-pase #prepBtn b{font-size:1.1rem}
+body.con-pase #prepBtn small{color:inherit;opacity:.9}
+body.con-pase #hoyScenes,body.con-pase #goalsNudge{display:none!important}
+body.con-pase .ti.next{background:var(--surface);color:inherit;border-color:var(--line)}
+body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
+
+@media (hover:hover){button.scene:hover,button.tile:hover,button.ti:hover{border-color:var(--accent)}}
+
+/* Computador: menú lateral y más aire. En el teléfono no cambia nada. */
+@media (min-width:900px){
+  #home{flex-direction:row}
+  .tabbar{order:-1;flex-direction:column;width:216px;padding:24px 12px;gap:4px;margin:0;border-top:0;border-right:1px solid var(--line)}
+  .tabbar::before{content:"Sala de Ensayo";font:400 1.3rem/1.1 "Anton",Bahnschrift,"Arial Narrow",var(--font);letter-spacing:.012em;text-transform:uppercase;padding:0 12px 20px}
+  .tabbar button{flex:none;flex-direction:row;justify-content:flex-start;gap:12px;min-height:46px;padding:0 12px;border-radius:10px;font-size:.95rem}
+  .tabbar button:hover{background:var(--bg)}
+  .tabbar button[aria-current="page"]{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+  /* En una fila flexible el porcentaje mide todo #home: se descuenta el menú */
+  .homebody{padding:32px max(28px,calc((100% - 976px)/2))}
+  .tabpanel[data-tab="hoy"] .brandline{display:none}
+  .scenes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tabpanel[data-tab="aprender"] .tiles.one,.tabpanel[data-tab="tu"] .tiles.one{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #loginForm{flex:none;width:440px;max-width:calc(100% - 32px);padding:32px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 28px rgba(14,18,22,.08)}
+}

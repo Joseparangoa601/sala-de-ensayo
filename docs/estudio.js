@@ -1401,6 +1401,7 @@ function passwordScreen(forced = false) {
     <label for="pwNew2">Repite la contraseña nueva</label><input id="pwNew2" type="password" autocomplete="new-password">
     <div id="pwErr"></div>
     <button class="primary wide" id="pwGo">Guardar contraseña</button>`);
+  Sala.ojoClave(document.getElementById("studyBody"));
   on("pwGo", async () => {
     const show = (m) => { $("#pwErr").innerHTML = err(m); };
     const nueva = $("#pwNew").value, otra = $("#pwNew2").value;
