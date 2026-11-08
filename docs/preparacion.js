@@ -156,16 +156,17 @@ function hub() {
     <div class="tiles one">
       <button class="tile" id="pQs"><span class="ic" aria-hidden="true"><svg><use href="#i-chat"/></svg></span><span><b>Las 20 preguntas</b><small>Practica y mira cómo te vendes</small></span></button>
       <button class="tile" id="pHs"><span class="ic" aria-hidden="true"><svg><use href="#i-pen"/></svg></span><span><b>Tus 5 historias</b><small>Tus hechos, con tus palabras</small></span></button>
+      <button class="tile" id="pKit"><span class="ic" aria-hidden="true"><svg><use href="#i-flag"/></svg></span><span><b>Para el día de la entrevista</b><small>Guion de salario y correo de agradecimiento</small></span></button>
       <button class="tile" id="pAv"><span class="ic" aria-hidden="true"><svg><use href="#i-trend"/></svg></span><span><b>Tu avance</b><small>Primer intento contra el último</small></span></button>
     </div>
     ${a.resumen_es ? `<div class="rc-ctx"><b>Lo que pide este cargo</b><span>${esc(a.resumen_es)}</span></div>` : ""}
-    ${reqs.length ? `<details class="prefs"><summary>Tu evidencia frente al cargo</summary><div class="list">${reqs.map((r) => `<div class="li"><span>${esc(r.requisito_es)}</span><span class="meta">${esc(lbl[r.estado] || "")}${r.evidencia_es ? " · " + esc(r.evidencia_es) : ""}</span></div>`).join("")}</div></details>` : ""}
+    ${reqs.length ? `<details class="prefs"><summary>Tu evidencia frente al cargo</summary><div class="list">${reqs.map((r) => `<div class="li"><span>${esc(r.requisito_es)}</span><span class="meta">${r.origen === "tipico" ? "Típico del cargo · " : ""}${esc(lbl[r.estado] || "")}${r.evidencia_es ? " · " + esc(r.evidencia_es) : ""}</span></div>`).join("")}</div></details>` : ""}
     <button class="linklike" id="pDel">Borrar mi expediente</button>`);
   for (const b of document.querySelectorAll("[data-t]")) b.onclick = () => {
     const t = pl.hoy[Number(b.dataset.t)];
     if (t.k === "h") story(t.i); else if (t.k === "q") practice(t.q); else simulacro();
   };
-  on("pSim", simulacro); on("pQs", questions); on("pHs", stories); on("pAv", avance); on("pDel", borrar);
+  on("pSim", simulacro); on("pQs", questions); on("pHs", stories); on("pKit", kit); on("pAv", avance); on("pDel", borrar);
 }
 function borrar() {
   scr("Borrar expediente", "", hub, BACK);
@@ -249,7 +250,7 @@ function result(q, opts, texto, j, pron) {
       ${/\[/.test(v.version_fuerte_en) ? `<span class="muted small">Lo que está entre corchetes solo lo sabes tú. Cámbialo por tu dato real.</span>` : ""}
       ${usa.length ? `<span class="muted small">Tomado de tu expediente, confírmalo: ${esc(usa.join("; "))}</span>` : ""}
       <button class="replay" id="rListen">Escuchar</button></div>
-    ${v.ingles?.better ? `<div class="rc-ctx"><b>Tu inglés, corregido</b><span class="en">${esc(v.ingles.better)}</span>${v.ingles.tip_es ? `<span class="muted small">${esc(v.ingles.tip_es)}</span>` : ""}</div>` : ""}
+    ${v.ingles?.better ? `<div class="rc-ctx"><b>${v.ingles.ok ? "✓ Tu inglés está correcto" : "Tu inglés, corregido"}</b><span class="en">${esc(v.ingles.better)}</span>${v.ingles.natural ? `<span class="muted small">Más natural: <span class="en">${esc(v.ingles.natural)}</span></span>` : ""}${v.ingles.tip_es ? `<span class="muted small">${esc(v.ingles.tip_es)}</span>` : ""}</div>` : ""}
     ${pron?.palabras?.length ? `<details class="prefs"><summary>Tu pronunciación</summary>${E()._scores(pron)}${E()._words(pron.palabras)}</details>` : ""}
     <button class="primary wide" id="rAgain">Intentarlo otra vez</button>
     <button class="ghost wide" id="rBack">Volver</button>`);
@@ -327,6 +328,55 @@ function report(v, puntaje) {
     <div class="list">${(v.respuestas || []).map((a) => `<div class="li"><span class="meta">${esc(a.pregunta_en)}</span><span>${esc(a.dijiste)}</span><span class="meta">Hecho ${dot(a.hecho)} · Acción ${dot(a.accion)} · Resultado ${dot(a.resultado)} · Cargo ${dot(a.relacion)}</span><span class="small">${esc(a.mejora_es)}</span></div>`).join("")}</div>
     <button class="primary wide" id="iDone">Volver al expediente</button>`);
   on("iDone", open);
+}
+/* ---------------- kit para el día de la entrevista ---------------- */
+function copiar(id, texto) {
+  on(id, async () => { const b = document.getElementById(id); try { await navigator.clipboard.writeText(texto); b.textContent = "Copiado"; } catch { b.textContent = "No se pudo copiar"; } });
+}
+function kit() {
+  scr("Para el día de la entrevista", "", hub, BACK);
+  paint(`<div class="tiles one">
+    <button class="tile" id="kSal"><span class="ic" aria-hidden="true"><svg><use href="#i-chat"/></svg></span><span><b>Guion de salario</b><small>Qué decir si te preguntan cuánto aspiras</small></span></button>
+    <button class="tile" id="kCor"><span class="ic" aria-hidden="true"><svg><use href="#i-send"/></svg></span><span><b>Correo de agradecimiento</b><small>Para enviar después de la entrevista</small></span></button>
+  </div>`);
+  on("kSal", salario); on("kCor", correo);
+}
+async function pedirKit(modo, datos, btn, errId, volver) {
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = "Preparando…"; const g = run;
+  try {
+    const r = await Sala.fnFetch("entrevista", { modo, ...datos, level: Sala.level() });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw j;
+    if (g !== run) return;
+    P.row.analisis = { ...(P.row.analisis || {}), kit: { ...(P.row.analisis?.kit || {}), [modo]: j.resultado } };
+    volver(j.resultado);
+  } catch (j) { if (g === run) { document.getElementById(errId).innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = orig; } }
+}
+function salario() {
+  scr("Guion de salario", "", kit, "‹ Volver");
+  const prev = P.row.analisis?.kit?.guion_salario;
+  paint(`<p class="muted">Los números los pones tú. La app no inventa rangos de mercado: averigua el de tu cargo y tu país antes de la entrevista.</p>
+    <label for="sObj">Tu aspiración (ejemplo: USD 3.000 a 3.500 al mes)</label><input id="sObj" maxlength="80">
+    <label for="sMin">Lo mínimo que aceptarías (solo lo ves tú)</label><input id="sMin" maxlength="80">
+    <div id="sErr"></div>
+    <button class="primary wide" id="sGo">${prev ? "Preparar de nuevo" : "Preparar mi guion"}</button>
+    ${prev ? guionHTML(prev) : ""}`);
+  on("sGo", () => pedirKit("guion_salario", { objetivo: $("#sObj").value.trim(), minimo: $("#sMin").value.trim() }, $("#sGo"), "sErr", () => salario()));
+  wireGuion(prev);
+}
+const LINEAS = [["primera_en", "Si te preguntan cuánto aspiras"], ["insisten_en", "Si insisten en un número"], ["baja_en", "Si la oferta es más baja"], ["tiempo_en", "Para pedir tiempo y pensarlo"]];
+const guionHTML = (s) => LINEAS.map(([k, l], i) => `<div class="rc-ctx"><b>${l}</b><span class="en">${marks(s[k])}</span><button class="replay" id="sL${i}">Escuchar</button></div>`).join("") + `<div class="rc-ctx"><b>Antes de usarlo</b><ul class="ul">${(s.notas_es || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>`;
+function wireGuion(s) { if (!s) return; LINEAS.forEach(([k], i) => on("sL" + i, () => E()._say(String(s[k]).replace(/\[[^\]]*\]/g, "...")))); }
+function correo() {
+  scr("Correo de agradecimiento", "", kit, "‹ Volver");
+  const prev = P.row.analisis?.kit?.correo_gracias;
+  paint(`<label for="cNom">Nombre de quien te entrevistó</label><input id="cNom" maxlength="80">
+    <label for="cTem">Algo específico que hablaron (en español o inglés)</label><textarea id="cTem" rows="3" maxlength="500" placeholder="Ej.: el reto de abrir el mercado de Perú"></textarea>
+    <div id="cErr"></div>
+    <button class="primary wide" id="cGo">${prev ? "Escribirlo de nuevo" : "Escribir mi correo"}</button>
+    ${prev ? `<div class="rc-ctx"><b>Asunto</b><span class="en">${marks(prev.asunto_en)}</span></div><div class="rc-ctx"><b>Correo</b><span class="en" style="white-space:pre-wrap">${marks(prev.cuerpo_en)}</span><button class="replay" id="cCopy">Copiar</button></div>${(prev.notas_es || []).length ? `<p class="muted small">${esc(prev.notas_es.join(" "))}</p>` : ""}` : ""}`);
+  on("cGo", () => pedirKit("correo_gracias", { entrevistador: $("#cNom").value.trim(), tema: $("#cTem").value.trim() }, $("#cGo"), "cErr", () => correo()));
+  if (prev) copiar("cCopy", `${prev.asunto_en}\n\n${prev.cuerpo_en}`);
 }
 function avance() {
   scr("Tu avance", "", hub, BACK);

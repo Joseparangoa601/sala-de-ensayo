@@ -1018,7 +1018,9 @@ function wire() {
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     $("#loginErr").textContent = "";
-    const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#password").value });
+    const email = $("#email").value.trim().toLowerCase(), clave = $("#password").value;   // el correo nunca distingue mayúsculas
+    const { error } = await sb.auth.signInWithPassword({ email, password: clave });
+    if (!error && clave === email.split("@")[0]) { store.set("forzarClave", true); setTimeout(() => window.Estudio?.password(true), 80); }   // entró con la clave inicial: debe cambiarla
     if (error) $("#loginErr").textContent = error.status >= 400 && error.status < 500 && error.status !== 429 ? "No pude entrar: revisa el correo y la contraseña." : "No pude conectar. Revisa tu internet e intenta de nuevo.";
   });
   $("#orb").onclick = () => {
@@ -1093,7 +1095,7 @@ function wire() {
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
     // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir"]) localStorage.removeItem("sala:" + k);
+    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave"]) localStorage.removeItem("sala:" + k);
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
@@ -1125,7 +1127,7 @@ async function boot() {
     if (fromLogin) { renderHome(); show("home"); }
     if (_ev === "SIGNED_IN" && !S.scene) { window.Estudio?.syncPerfil?.(); window.Datos?.sync(); }
   });
-  if (S.session) { renderHome(); show("home"); window.Estudio?.syncPerfil?.(); } else show("login");
+  if (S.session) { renderHome(); show("home"); window.Estudio?.syncPerfil?.(); if (store.get("forzarClave")) { const pedir = () => window.Estudio?.password(true); document.readyState === "complete" ? pedir() : addEventListener("load", pedir, { once: true }); } } else show("login");
   // ?leccion=id viene de tocar una notificación con la app cerrada
   const lid = new URLSearchParams(location.search).get("leccion");
   if (lid) { history.replaceState(null, "", location.pathname); if (S.session && window.Estudio) Estudio.open(lid); }

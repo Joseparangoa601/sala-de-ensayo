@@ -1390,6 +1390,37 @@ async function progress() {
 
 /* ---------------- arranque ---------------- */
 // practiced: la conversación tuvo turnos (lo indica app.js); solo entonces cuenta como hecha
+/* ---------------- cambiar contraseña ---------------- */
+function passwordScreen(forced = false) {
+  const atras = forced ? () => passwordScreen(true) : () => Sala.backHome();
+  screen("Cambiar contraseña", forced ? "Paso obligatorio" : "", atras, forced ? " " : "‹ Inicio");
+  body(`${forced ? `<div class="notice" data-kind="info">Entraste con la clave inicial. Elige una contraseña solo tuya para seguir.</div>` : `<label for="pwOld">Contraseña actual</label><input id="pwOld" type="password" autocomplete="current-password">`}
+    <label for="pwNew">Contraseña nueva (mínimo 8 caracteres)</label><input id="pwNew" type="password" autocomplete="new-password" minlength="8">
+    <label for="pwNew2">Repite la contraseña nueva</label><input id="pwNew2" type="password" autocomplete="new-password">
+    <div id="pwErr"></div>
+    <button class="primary wide" id="pwGo">Guardar contraseña</button>`);
+  on("pwGo", async () => {
+    const show = (m) => { $("#pwErr").innerHTML = err(m); };
+    const nueva = $("#pwNew").value, otra = $("#pwNew2").value;
+    const { data: u } = await Sala.sb().auth.getUser();
+    const email = u?.user?.email?.toLowerCase() || "";
+    if (nueva.length < 8) return show("Usa al menos 8 caracteres.");
+    if (nueva !== otra) return show("Las dos contraseñas no coinciden.");
+    if (nueva.toLowerCase() === email.split("@")[0] || nueva.toLowerCase() === email) return show("Elige una contraseña distinta a tu usuario.");
+    const b = $("#pwGo"); b.disabled = true; b.textContent = "Guardando…";
+    try {
+      if (!forced) {
+        const { error } = await Sala.sb().auth.signInWithPassword({ email, password: $("#pwOld").value });
+        if (error) throw { msg: "La contraseña actual no es correcta." };
+      }
+      const { error } = await Sala.sb().auth.updateUser({ password: nueva });
+      if (error) throw { msg: /different|same/i.test(error.message) ? "Elige una contraseña distinta a la anterior." : /weak/i.test(error.message) ? "Esa contraseña es muy débil. Prueba con una más larga." : "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo." };
+      store().remove ? store().remove("forzarClave") : store().set("forzarClave", false);
+      Sala.notice("Tu contraseña quedó cambiada.", "info");
+      Sala.backHome();
+    } catch (e) { show(e?.msg || "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo."); b.disabled = false; b.textContent = "Guardar contraseña"; }
+  });
+}
 function reopen(from, practiced) {
   if (from?.kind === "prep" && window.Prep) { leave(); Prep.afterSim(); return; }
   if (from?.kind !== "lesson") { home(); return; }
@@ -1403,6 +1434,7 @@ document.addEventListener("DOMContentLoaded", () => {
   on("reminderBtn", reminderScreen);
   on("newSceneBtn", sceneHome);
   on("goalsBtn", goalsScreen);
+  on("passBtn", () => passwordScreen(false));
 });
 // Abrir una lección desde una notificación (app ya abierta → mensaje del SW; app cerrada → ?leccion=id)
 navigator.serviceWorker?.addEventListener("message", (e) => {
@@ -1411,5 +1443,5 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (!document.getElementById("talk").hidden) { Sala.notice("Tu lección está lista. Ábrela en «Aprender con un video» cuando termines esta práctica.", "info"); return; }
   openLesson(e.data.abrirLeccion);
 });
-window.Estudio = { open: openLesson, goals: goalsScreen, syncPerfil, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, _parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
+window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, _parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
 })();
