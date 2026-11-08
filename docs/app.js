@@ -54,6 +54,7 @@ function setState(st, caption) {
   if (caption !== undefined) $("#live").textContent = caption;
   $("#pauseBtn").textContent = st === "paused" ? "Continuar" : "Pausa";
   $("#pauseBtn").hidden = st === "idle" || noMic;   // sin sesión de voz no hay nada que pausar
+  $("#endBtn").hidden = st === "idle";
 }
 // iPhone: con el teclado abierto la altura útil es la del viewport visual, no la de la pantalla
 function fitViewport() {
@@ -1098,6 +1099,7 @@ function wire() {
     const leave = () => { if (from && window.Estudio) Estudio.reopen(from, ses?.turnos > 0); else { renderHome(); show("home"); } };
     if (scene && ses?.turnos > 0) showRecap(scene, ses, list, leave, hist); else leave();
   };
+  $("#endBtn").onclick = () => $("#backBtn").click();   // termina la práctica y lleva al resumen
   $("#reviewBtn").onclick = () => { if (window.Repaso) Repaso.open(); };
   $("#typeForm").addEventListener("submit", (e) => {
     e.preventDefault();

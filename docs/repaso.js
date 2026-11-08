@@ -61,10 +61,19 @@ function render() {
     const all = Datos.all();
     const nextDue = all.map((c) => new Date(c.due)).sort((a, b) => a - b)[0];
     const soon = nextDue && nextDue - Date.now() < 3600_000;   // las de «Otra vez» vuelven en minutos
-    box.innerHTML = `<div class="empty">
-      <p><strong>${done ? (soon ? "¡Listo por ahora!" : "¡Listo por hoy!") : "No tienes frases pendientes."}</strong></p>
-      <p class="muted">${all.length ? `Tienes ${all.length} ${all.length === 1 ? "frase" : "frases"} en el cuaderno.${nextDue ? ` El próximo repaso es ${enCuanto(nextDue)}.` : ""}` : "Cada corrección de tus conversaciones se guarda aquí para repasarla."}</p>
+    const due = Datos.due().length;
+    const titulo = done ? (soon ? "Listo por ahora" : "Listo por hoy") : "No tienes frases pendientes";
+    const detalle = !all.length ? "Cada corrección de tus conversaciones se guarda aquí para repasarla."
+      : due ? `${due === 1 ? "Tienes 1 frase lista" : `Tienes ${due} frases listas`} para repasar otra vez.`
+      : `Tu próximo repaso es en ${fmtWhen(nextDue)}.`;
+    box.innerHTML = `<div class="donecard">
+      ${done ? `<span class="donemark" aria-hidden="true">✓</span>` : ""}
+      <h2>${titulo}</h2>
+      <p class="muted">${detalle}</p>
+      ${due ? `<button class="primary wide" id="rcAgain">Repasar ${due === 1 ? "esa frase" : `esas ${due} frases`}</button>` : ""}
+      <button class="ghost wide" id="rcHome">Volver a Hoy</button>
     </div>`;
+    wire();
     renderList();
     return;
   }
@@ -102,6 +111,8 @@ function render() {
 
 function wire() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  on("rcAgain", open);
+  on("rcHome", () => Sala.backHome());
   on("rcSpeak", listen);
   on("rcShow", () => reveal(""));
   on("rcStop", () => { if (rec) rec.stopContinuousRecognitionAsync(() => {}, () => {}); });
@@ -172,7 +183,7 @@ function renderList() {
   det.querySelector(".list").innerHTML = all.map((c) => `
     <div class="li"><span class="ins">${esc(c.correcta)}</span>
     ${c.dijiste ? `<span class="del small">${esc(c.dijiste)}</span>` : ""}
-    <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}próximo repaso ${enCuanto(c.due)}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
+    <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}${new Date(c.due) <= Date.now() ? "lista para repasar" : `próximo repaso ${enCuanto(c.due)}`}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
