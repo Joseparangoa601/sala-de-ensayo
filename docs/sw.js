@@ -1,5 +1,5 @@
 // Caché de la app: los archivos propios van primero a la red (siempre la última versión) y caen a caché sin conexión.
-const CACHE = "sala-v39";
+const CACHE = "sala-v40";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "scenes.js", "datos.js", "repaso.js", "estudio.js", "preparacion.js", "banco.json", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
 // Librerías con versión fija: caché aparte, sin versión, que no se borra al publicar (sin ellas la app no arranca offline)
 const LIBS = "sala-libs";

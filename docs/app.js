@@ -282,8 +282,9 @@ function systemSpeak(text, item, lang = "en-US") {
 /* ---------------- corrección por voz (coach) ----------------
    Voz distinta a la del personaje. Suena cuando el personaje termina su turno,
    nunca encima de él, y resalta la tarjeta que se está leyendo. */
-const COACH_VOICES = ["en-US-AvaMultilingualNeural", "en-US-AndrewMultilingualNeural"];
-function coachVoice() { const v = S.scene ? voiceFor(S.scene) : ""; return v === COACH_VOICES[0] ? COACH_VOICES[1] : COACH_VOICES[0]; }
+// Una voz nativa por idioma: la voz multilingüe salía ronca en la primera palabra al pasar del inglés al español.
+const COACH_VOICES = [{ en: "en-US-AvaNeural", es: "es-MX-DaliaNeural" }, { en: "en-US-AndrewNeural", es: "es-MX-JorgeNeural" }];
+function coachVoice() { const v = S.scene ? voiceFor(S.scene) : ""; return /Ava/.test(v) ? COACH_VOICES[1] : COACH_VOICES[0]; }
 function coachParts(c) {
   // [idioma, texto]: el español lo dice en español y las frases en inglés, en inglés y un poco más lento.
   const p = [];
@@ -318,9 +319,9 @@ function trozosTip(tip) {
 // Un bloque <voice> por trozo: garantiza que cada uno salga en su idioma, también a mitad de frase.
 function coachSsml(parts) {
   const v = coachVoice();
-  const body = parts.map(([lang, t]) => `<voice name="${v}">${lang === "es"
-    ? `<lang xml:lang="es-MX">${escXml(t)}</lang><break time="120ms"/>`
-    : `<lang xml:lang="en-US"><prosody rate="-12%">${escXml(t)}</prosody></lang><break time="200ms"/>`}</voice>`).join("");
+  const body = parts.map(([lang, t]) => lang === "es"
+    ? `<voice name="${v.es}">${escXml(t)}<break time="120ms"/></voice>`
+    : `<voice name="${v.en}"><prosody rate="-12%">${escXml(t)}</prosody><break time="200ms"/></voice>`).join("");
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">${body}</speak>`;
 }
 const AVISO_COACH = "Corrección · toca el círculo para saltarla";
@@ -450,6 +451,29 @@ function onFrame(probs, frame) {
 const turno = { partes: [], cerrando: false, segmento: null };
 function modoManual() { return !!S.scene && store.get(S.scene.prep ? "manualSim" : "manualConv", !!S.scene.prep); }
 
+// Seguridad de lo reconocido en este turno: [confianza de Azure, palabras]
+const confTurno = [];
+function confianzaDe(result) {
+  try {
+    const j = JSON.parse(result.properties?.getProperty?.(SDK.PropertyId.SpeechServiceResponse_JsonResult) || result.json);
+    const v = j.NBest?.[0]?.Confidence;
+    return typeof v === "number" ? v : null;
+  } catch { return null; }
+}
+function promedioConf() {
+  const palabras = confTurno.reduce((n, x) => n + x[1], 0);
+  return palabras ? confTurno.reduce((n, x) => n + x[0] * x[1], 0) / palabras : null;
+}
+const CONF_MINIMA = 0.5;   // estimado: se ajusta con las confianzas que guarda cada sesión
+// Devuelve por qué no conviene corregir lo oído, o null si se puede corregir.
+function oidoDudoso(text, conf) {
+  const ws = String(text).match(/[A-Za-z0-9']+/g) || [];
+  if (ws.length < 2) return "corta";     // de una sola palabra no se puede saber qué querías decir
+  if (ws.some((w) => /[bcdfghjklmnpqrstvwxz]{6,}/i.test(w))) return "ruido";   // 6 consonantes seguidas: ninguna palabra común («strengths» tiene 5)
+  if (conf != null && conf < CONF_MINIMA) return "dudosa";
+  return null;
+}
+
 // Una sola frase fuera de la conversación (Repaso). Usa el mismo micrófono y reconocimiento de la conversación.
 let unaVez = null;
 async function escucharUnaVez(parcial) {
@@ -550,12 +574,20 @@ function openStt() {
   const push = SDK.AudioInputStream.createPushStream(fmt);
   const cfg = SDK.SpeechConfig.fromAuthorizationToken(AZ.token, AZ.region);
   cfg.speechRecognitionLanguage = "en-US";
-  cfg.outputFormat = SDK.OutputFormat.Simple;
+  cfg.outputFormat = SDK.OutputFormat.Detailed;   // trae la confianza de cada frase
+  if (!turno.partes.length) confTurno.length = 0;
   const rec = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromStreamInput(push));
   const sess = { rec, push, parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
   sess.done = new Promise((resolve) => { sess.resolve = resolve; });
   rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard) unaVez?.parcial?.([...sess.parts, sess.partial].join(" ")); if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
-  rec.recognized = (_s, e) => { if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) sess.parts.push(e.result.text); sess.partial = ""; };
+  rec.recognized = (_s, e) => {
+    if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) {
+      sess.parts.push(e.result.text);
+      const c = confianzaDe(e.result);
+      if (c != null && !sess.discard) confTurno.push([c, e.result.text.split(/\s+/).length]);
+    }
+    sess.partial = "";
+  };
   rec.canceled = (_s, e) => {
     if (e.reason === SDK.CancellationReason.Error) { sess.error = e.errorDetails || String(e.errorCode); logDebug("STT error: " + sess.error); }
     sess.resolve();
@@ -603,7 +635,10 @@ async function userSaid(text, m = {}) {
   }
   const bubble = addBubble("user", text);
   setState("thinking", "");
-  correct(text, prev, bubble);            // en paralelo, no bloquea la voz
+  const conf = m.speechEnd ? promedioConf() : null;   // escrito a mano no tiene confianza
+  confTurno.length = 0;
+  if (conf != null) (S.confs ||= []).push(Math.round(conf * 100) / 100);
+  correct(text, prev, bubble, conf);      // en paralelo, no bloquea la voz
   await characterTurn(gen);
 }
 
@@ -666,10 +701,17 @@ async function characterTurn(gen) {
   }
 }
 
-async function correct(text, prev, bubble) {
+async function correct(text, prev, bubble, conf) {
   const gen = S.gen;
   const corrections = S.corrections;   // la lista de esta sesión, aunque llegue después de salir
   const failed = () => { if (corrections) corrections.failed = (corrections.failed || 0) + 1; S.recapRender?.(); };
+  const simulacro = !!S.scene?.prep;   // en una entrevista real nadie te corrige: todo queda para el informe
+  // Corregir lo que la app no oyó bien sería corregirte algo que no dijiste: ni corrección ni tarjeta.
+  const dudoso = oidoDudoso(text, conf);
+  if (dudoso) {
+    if (dudoso !== "corta" && !simulacro) { bubble.insertAdjacentHTML("beforeend", `<div class="proof"><span class="muted small">No te entendí con claridad, así que no corrijo esta frase.</span></div>`); scrollLog(); }
+    return;
+  }
   try {
     const escena = S.scene.title;      // la de este turno, aunque ya hayas cambiado de escena
     const r = await fnFetch("corregir", { scene: escena, prev, text });
@@ -683,6 +725,7 @@ async function correct(text, prev, bubble) {
       Datos.addFromCorrection({ escena, dijiste: text, correcta: c.ok ? "" : c.better, nativo: c.natural, tip: c.tip, contexto: prev });
     }
     if (!c.ok && c.better && corrections) corrections.push({ original: text, better: c.better, tip: c.tip || "" });
+    if (simulacro) { S.recapRender?.(); return; }
     if (!c.ok && c.better) bubble.querySelector(".bubble").innerHTML = wordDiff(text, c.better).said;
     bubble.insertAdjacentHTML("beforeend", proofHTML(c));
     const card = bubble.lastElementChild;
@@ -781,7 +824,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
     paint();
   };
   function render() {
-    const last = list.slice(-3).reverse();
+    const last = (scene.prep ? list.slice() : list.slice(-3)).reverse();   // en el simulacro aquí se ven todas
     const due = window.Datos ? Datos.due().length : 0;
     const scored = !!ev.v;
     $("#recapBody").innerHTML = `<h1>Terminaste esta práctica</h1>
@@ -789,7 +832,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
       ${evalHTML(ev)}
       <div class="kpis"><div><small>Turnos</small><b>${ses.turnos}</b></div><div><small>Palabras tuyas</small><b>${ses.palabras_jose}</b></div><div><small>Correcciones</small><b>${list.length}</b></div></div>
       ${last.length ? `<div class="rc-ctx"><b>Frase para mañana</b><span class="en">${esc(last[0].better)}</span></div>
-        <h2>Lo que más conviene repasar</h2>
+        <h2>${scene.prep ? "Correcciones de tu inglés en el simulacro" : "Lo que más conviene repasar"}</h2>
         <div class="list">${last.map((c) => { const d = wordDiff(c.original, c.better); return `<div class="li"><span class="said">${d.said}</span><span class="fixed">${d.fixed}</span>${c.tip ? `<span class="meta">${esc(c.tip)}</span>` : ""}</div>`; }).join("")}</div>
         <p class="muted small">Estas frases ya están en tu cuaderno de errores.</p>`
       : list.failed ? `<p class="muted small">No pude revisar todas tus frases en esta práctica.</p>`
@@ -921,7 +964,7 @@ async function begin() {
 // La escena queda abierta igual si empiezas hablando o escribiendo: cuenta la sesión y el personaje dice su primera frase.
 function openScene() {
   S.usage = { haikuIn: 0, haikuOut: 0, haikuCacheRead: 0, sonnetIn: 0, sonnetOut: 0, turns: 0, sttSeconds: 0, ttsChars: 0 };
-  S.cefrVotes = [];
+  S.cefrVotes = []; S.confs = [];
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   S.history.push({ role: "assistant", content: S.scene.open });
   addBubble("assistant", S.scene.open);
@@ -1012,7 +1055,7 @@ function saveSessionNow() {
   Object.assign(S.sesion, {
     fin: new Date().toISOString(),
     stt_segundos: Math.round(u.sttSeconds), tts_caracteres: u.ttsChars,
-    tokens: { haiku_in: u.haikuIn, haiku_out: u.haikuOut, haiku_cache: u.haikuCacheRead, sonnet_in: u.sonnetIn, sonnet_out: u.sonnetOut },
+    tokens: { haiku_in: u.haikuIn, haiku_out: u.haikuOut, haiku_cache: u.haikuCacheRead, sonnet_in: u.sonnetIn, sonnet_out: u.sonnetOut, confianza: S.confs || [] },
     latencias: S.metrics.filter((m) => m.at >= since).map((m) => m.total),
     nivel_estimado: Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0] || null,
   });

@@ -9,6 +9,7 @@ const SDK = window.SpeechSDK;
 const RATING = { 1: "Otra vez", 2: "Difícil", 3: "Bien", 4: "Fácil" };
 
 let queue = [], current = null, phase = "ask", heard = "", sim = null, rec = null, done = 0;
+let repetida = null;   // tarjeta que ya se marcó «Otra vez» en esta vuelta
 let listenGen = 0, listenTimer = null, voiceMsg = "";   // listenGen invalida una escucha en curso al salir o avanzar
 
 function fmtWhen(d) {
@@ -49,6 +50,7 @@ function next() {
   stopRec();
   Sala.stopAudio();   // que la frase anterior no siga sonando ni la capte el micrófono
   current = queue.shift() || null;
+  repetida = null;
   phase = "ask"; heard = ""; sim = null; voiceMsg = "";
   render();
 }
@@ -121,7 +123,19 @@ function wire() {
   on("rcArchive", () => { Datos.archive(current); next(); });
   const f = document.getElementById("rcType");
   if (f) f.onsubmit = (e) => { e.preventDefault(); const t = $("#rcTypeBox").value.trim(); if (t) reveal(t); };
-  for (const b of document.querySelectorAll(".rate")) b.onclick = () => { Datos.review(current, Number(b.dataset.r), { dicho: heard || null, similitud: sim }); done++; next(); };
+  for (const b of document.querySelectorAll(".rate")) b.onclick = () => {
+    const r = Number(b.dataset.r);
+    if (r === 1) return otraVez();
+    Datos.review(current, r, { dicho: heard || null, similitud: sim }); done++; next();
+  };
+}
+// «Otra vez» vuelve a la misma frase para decirla de nuevo; repetirla varias veces seguidas cuenta como un solo fallo.
+function otraVez() {
+  if (repetida !== current.id) Datos.review(current, 1, { dicho: heard || null, similitud: sim });
+  repetida = current.id;
+  stopRec(); Sala.stopAudio();
+  phase = "ask"; heard = ""; sim = null; voiceMsg = "";
+  render();
 }
 
 async function listen() {
