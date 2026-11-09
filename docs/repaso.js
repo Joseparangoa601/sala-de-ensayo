@@ -10,6 +10,7 @@ const RATING = { 1: "Otra vez", 2: "Difícil", 3: "Bien", 4: "Fácil" };
 
 let queue = [], current = null, phase = "ask", heard = "", sim = null, rec = null, done = 0;
 let repetida = null;   // tarjeta que ya se marcó «Otra vez» en esta vuelta
+let faltante = "", ayudada = false;   // lo que le faltó decir, y si ya vio ese final en esta vuelta
 let listenGen = 0, listenTimer = null, voiceMsg = "";   // listenGen invalida una escucha en curso al salir o avanzar
 
 function fmtWhen(d) {
@@ -38,6 +39,13 @@ function wordSim(a, b) {
     d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (A[i - 1] === B[j - 1] ? 0 : 1));
   return Math.max(0, 1 - d[A.length][B.length] / Math.max(A.length, B.length));
 }
+// Si lo dicho es el comienzo exacto de la frase (3 palabras o más), devuelve lo que faltó.
+function faltaFinal(said, target) {
+  if (!target) return null;
+  const dicho = words(said), meta = [...target.matchAll(/[a-z0-9'‘’]+/gi)], objetivo = words(target);
+  if (dicho.length < 3 || dicho.length >= objetivo.length || dicho.some((w, i) => w !== objetivo[i])) return null;
+  return target.slice(meta[dicho.length].index);
+}
 // Sin intento que comparar no se sugiere ninguna calificación (0 no coincide con ningún botón)
 function suggest(s) { return s == null ? 0 : s >= 0.95 ? 4 : s >= 0.8 ? 3 : s >= 0.6 ? 2 : 1; }
 
@@ -52,9 +60,16 @@ function next() {
   stopRec();
   Sala.stopAudio();   // que la frase anterior no siga sonando ni la capte el micrófono
   current = queue.shift() || null;
-  repetida = null;
+  repetida = null; ayudada = false; faltante = "";
   phase = "ask"; heard = ""; sim = null; voiceMsg = "";
   render();
+}
+
+// Cuántas palabras coinciden con la versión más cercana. Compara palabras, no pronunciación.
+function palabrasDichas() {
+  const t = [current.correcta, current.nativo].filter(Boolean).reduce((a, b) => (wordSim(heard, b) > wordSim(heard, a) ? b : a));
+  const max = Math.max(words(heard).length, words(t).length);
+  return `${Math.round(sim * max)} de ${max} palabras`;
 }
 
 function render() {
@@ -98,11 +113,20 @@ function render() {
     h += `<p class="rc-q listening">Te escucho…</p><div class="live">${esc(heard)}</div>
       <div class="rc-actions"><button class="ghost" id="rcStop">Listo</button></div>`;
   } else if (phase === "ok") {
-    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${Math.round(sim * 100)} % igual</em></div>
+    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
       <p class="rc-q" role="status">Bien dicho. Sigue la próxima frase…</p>`;
+  } else if (phase === "parcial") {
+    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
+      <div class="proof"><div class="row"><b>Te faltó</b><span class="ins">${esc(faltante)}</span></div></div>
+      <p class="rc-q" role="status">Bien el comienzo. Ahora dila completa.</p>
+      <div class="rc-actions">
+        <button class="primary big" id="rcSpeak">${IC.mic}Decirla completa</button>
+        <button class="ghost" id="rcShow">Mostrar respuesta</button>
+      </div>
+      <form id="rcType" class="row2"><input id="rcTypeBox" placeholder="…o escríbela" autocomplete="off" aria-label="Escribir la frase completa"><button class="ghost">OK</button></form>`;
   } else {
     const s = suggest(sim);
-    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${Math.round(sim * 100)} % igual</em>` : ""}</div>` : "";
+    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>` : "";
     h += `<div class="proof"><div class="row"><b>${natural ? "Nativo" : "Correcto"}</b><span class="${natural ? "alt" : "ins"}">${esc(c.correcta)}</span></div>`;
     if (c.nativo) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.nativo)}</span></div>`;
     if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
@@ -182,7 +206,7 @@ const leerTarjeta = (c) => Sala.leerCorreccion(c.origen === "natural"
 function acierto() {
   const c = current, gen = listenGen;
   // Si acaba de ver la respuesta por «Otra vez», acertar no demuestra que la recuerde tanto como para espaciarla mucho.
-  Datos.review(c, repetida === c.id ? 3 : 4, { dicho: heard, similitud: sim });
+  Datos.review(c, repetida === c.id || ayudada ? 3 : 4, { dicho: heard, similitud: sim });
   done++;
   phase = "ok";
   render();
@@ -195,6 +219,8 @@ function reveal(said) {
   sim = said ? wordSim(said, current.correcta) : null;
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
   if (sim != null && sim >= 0.95) return acierto();
+  const falta = said ? faltaFinal(said, current.nativo) || faltaFinal(said, current.correcta) : null;
+  if (falta) { faltante = falta; ayudada = true; phase = "parcial"; render(); return; }   // no se equivocó: no hay «Mejor di» que leerle
   phase = "answer";
   render();
   leerTarjeta(current).catch(() => {});
