@@ -26,7 +26,9 @@ function fmtWhen(d) {
 const enCuanto = (d) => (new Date(d) <= Date.now() ? "ahora" : `en ${fmtWhen(d)}`);
 
 // Similitud por palabras en orden (distancia de edición sobre palabras), 0..1
-const words = (s) => s.toLowerCase().replace(/[‘’]/g, "'").match(/[a-z0-9']+/g) || [];   // el teclado del iPhone escribe ’
+const NUMEROS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+// El reconocimiento escribe «10» aunque la tarjeta diga «ten»: no es un error de quien habla.
+const words = (s) => (s.toLowerCase().replace(/[‘’]/g, "'").match(/[a-z0-9']+/g) || []).map((w) => NUMEROS[w] || w);   // el teclado del iPhone escribe ’
 function wordSim(a, b) {
   const A = words(a), B = words(b);
   if (!A.length || !B.length) return 0;
@@ -95,6 +97,9 @@ function render() {
   } else if (phase === "listening") {
     h += `<p class="rc-q listening">Te escucho…</p><div class="live">${esc(heard)}</div>
       <div class="rc-actions"><button class="ghost" id="rcStop">Listo</button></div>`;
+  } else if (phase === "ok") {
+    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${Math.round(sim * 100)} % igual</em></div>
+      <p class="rc-q" role="status">Bien dicho. Sigue la próxima frase…</p>`;
   } else {
     const s = suggest(sim);
     h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${Math.round(sim * 100)} % igual</em>` : ""}</div>` : "";
@@ -173,11 +178,23 @@ const leerTarjeta = (c) => Sala.leerCorreccion(c.origen === "natural"
   ? { ok: true, better: "", natural: c.correcta, tip: c.tip }
   : { ok: false, better: c.correcta, natural: c.nativo && c.nativo !== c.correcta ? c.nativo : "", tip: c.tip });
 
+// Dijo bien la frase: no hay nada que corregirle, se registra y sigue con la próxima.
+function acierto() {
+  const c = current, gen = listenGen;
+  // Si acaba de ver la respuesta por «Otra vez», acertar no demuestra que la recuerde tanto como para espaciarla mucho.
+  Datos.review(c, repetida === c.id ? 3 : 4, { dicho: heard, similitud: sim });
+  done++;
+  phase = "ok";
+  render();
+  setTimeout(() => { if (gen === listenGen && current === c) next(); }, 1500);
+}
+
 function reveal(said) {
   listenGen++;   // una escucha que aún estaba cargando no debe abrir el micrófono después
   heard = said;
   sim = said ? wordSim(said, current.correcta) : null;
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
+  if (sim != null && sim >= 0.95) return acierto();
   phase = "answer";
   render();
   leerTarjeta(current).catch(() => {});
