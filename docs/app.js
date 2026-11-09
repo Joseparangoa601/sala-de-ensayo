@@ -283,7 +283,7 @@ function systemSpeak(text, item, lang = "en-US") {
    Voz distinta a la del personaje. Suena cuando el personaje termina su turno,
    nunca encima de él, y resalta la tarjeta que se está leyendo. */
 const COACH_VOICES = ["en-US-AvaMultilingualNeural", "en-US-AndrewMultilingualNeural"];
-function coachVoice() { const v = voiceFor(S.scene); return v === COACH_VOICES[0] ? COACH_VOICES[1] : COACH_VOICES[0]; }
+function coachVoice() { const v = S.scene ? voiceFor(S.scene) : ""; return v === COACH_VOICES[0] ? COACH_VOICES[1] : COACH_VOICES[0]; }
 function coachParts(c) {
   // [idioma, texto]: el español lo dice en español y las frases en inglés, en inglés y un poco más lento.
   const p = [];
@@ -360,6 +360,16 @@ function replayCoach(c, card) {
   speakItem({ coach: true, gen, text: plain, plain, parts, ssml: coachSsml(parts),
     onStart: () => { card.classList.add("reading"); $("#stateLabel").textContent = AVISO_COACH; }, onEnd: () => { card.classList.remove("reading"); replayNow = null; } });
   player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
+}
+
+// Fuera de una conversación (Repaso): lee la corrección completa, cada parte en su idioma
+function leerCorreccion(c) {
+  unlockAudio();
+  stopSpeaking();
+  const parts = coachParts(c);
+  if (!parts.length) return Promise.resolve();
+  const plain = parts.map((p) => p[1]).join(" ");
+  return new Promise((res) => speakItem({ coach: true, gen: S.gen, text: plain, plain, parts, ssml: coachSsml(parts), onEnd: res }));
 }
 
 function stopSpeaking() {
@@ -440,7 +450,22 @@ function onFrame(probs, frame) {
 const turno = { partes: [], cerrando: false, segmento: null };
 function modoManual() { return !!S.scene && store.get(S.scene.prep ? "manualSim" : "manualConv", !!S.scene.prep); }
 
+// Una sola frase fuera de la conversación (Repaso). Usa el mismo micrófono y reconocimiento de la conversación.
+let unaVez = null;
+async function escucharUnaVez(parcial) {
+  if (!vadNode) await startMic(); else vadNode.start();
+  let terminar;
+  const promesa = new Promise((r) => { terminar = r; });
+  const u = unaVez = { parcial, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
+  return {
+    promesa,
+    parar: async () => { const t = stt ? await closeStt() : u.cerrando ? await u.cerrando : ""; u.fin(t); },
+    cancelar: () => { if (unaVez === u && stt) { stt.discard = true; closeStt(); } u.fin(""); },
+  };
+}
+
 function onSpeechStart() {
+  if (unaVez) { if (!stt) { openStt(); for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; } } return; }
   if (S.state === "paused" || S.state === "idle" || turno.cerrando) return;
   if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
   if (player.playing?.coach) return;     // repetir en voz baja o un ruido no corta la corrección; se salta tocando el círculo
@@ -467,6 +492,13 @@ function isEcho(text, ref) {
 
 async function onSpeechEnd() {
   if (!stt) return;
+  if (unaVez) {
+    const u = unaVez;
+    u.cerrando = closeStt();
+    const t = await u.cerrando;
+    if (t) u.fin(t);                     // sin texto sigue escuchando hasta Listo o el tope de tiempo
+    return;
+  }
   const tEnd = now();
   const sess = stt, scene = S.scene;
   turno.segmento = closeStt();           // si tocas Listo ahora, espera a este tramo
@@ -522,7 +554,7 @@ function openStt() {
   const rec = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromStreamInput(push));
   const sess = { rec, push, parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
   sess.done = new Promise((resolve) => { sess.resolve = resolve; });
-  rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
+  rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard) unaVez?.parcial?.([...sess.parts, sess.partial].join(" ")); if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
   rec.recognized = (_s, e) => { if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) sess.parts.push(e.result.text); sess.partial = ""; };
   rec.canceled = (_s, e) => {
     if (e.reason === SDK.CancellationReason.Error) { sess.error = e.errorDetails || String(e.errorCode); logDebug("STT error: " + sess.error); }
@@ -1324,7 +1356,7 @@ function speakEN(text, opts = {}) {
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
   ojoClave,
-  sb: () => sb, show, ensureVoice, speakEN, similarity, notice, fnFetch, store, esc,
+  sb: () => sb, show, ensureVoice, speakEN, leerCorreccion, escucharUnaVez, similarity, notice, fnFetch, store, esc,
   azure: () => ({ token: AZ.token, region: AZ.region, refresh: () => azureToken() }),
   backHome: () => {
     const back = S.backTo; S.backTo = null;

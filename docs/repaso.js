@@ -115,8 +115,8 @@ function wire() {
   on("rcHome", () => Sala.backHome());
   on("rcSpeak", listen);
   on("rcShow", () => reveal(""));
-  on("rcStop", () => { if (rec) rec.stopContinuousRecognitionAsync(() => {}, () => {}); });
-  on("rcListen", () => Sala.speakEN(current.correcta));
+  on("rcStop", () => { if (rec) rec.parar(); });
+  on("rcListen", () => leerTarjeta(current));
   on("rcArchive", () => { Datos.archive(current); next(); });
   const f = document.getElementById("rcType");
   if (f) f.onsubmit = (e) => { e.preventDefault(); const t = $("#rcTypeBox").value.trim(); if (t) reveal(t); };
@@ -131,40 +131,30 @@ async function listen() {
   }
   if (gen !== listenGen) return;   // mientras cargaba la voz, saliste o ya viste la respuesta
   voiceMsg = "";
-  const az = Sala.azure();
-  const cfg = SDK.SpeechConfig.fromAuthorizationToken(az.token, az.region);
-  cfg.speechRecognitionLanguage = "en-US";
-  cfg.setProperty(SDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, "1200");
-  rec = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromDefaultMicrophoneInput());
-  const parts = [];
   phase = "listening"; heard = ""; render();
-  let ended = false;
-  const said = () => parts.join(" ").trim() || heard.trim();
-  const finish = () => { if (ended || gen !== listenGen) return; ended = true; const t = said(); stopRec(); reveal(t); };
-  // Si falla el micrófono o la conexión no se revela la respuesta: se puede intentar otra vez o escribirla
-  const fail = () => {
-    if (ended || gen !== listenGen) return;
-    ended = true;
-    const t = said();
-    stopRec();
-    if (t) { reveal(t); return; }
-    phase = "ask"; heard = ""; voiceMsg = "No se pudo activar la voz. Revisa el permiso del micrófono o escribe tu respuesta.";
-    render();
-  };
-  rec.recognizing = (_s, e) => { if (ended || gen !== listenGen) return; heard = [...parts, e.result.text].join(" "); const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = heard; };
-  rec.recognized = (_s, e) => { if (gen === listenGen && e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) { parts.push(e.result.text); finish(); } };
-  rec.canceled = (_s, e) => { if (e.reason === SDK.CancellationReason.Error) fail(); else finish(); };
-  rec.sessionStopped = () => finish();
-  rec.startContinuousRecognitionAsync(() => {}, () => fail());
-  listenTimer = setTimeout(finish, 15000); // tope por si no se detecta voz
+  let oido;
+  try {
+    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; });
+  } catch {
+    if (gen === listenGen) { phase = "ask"; heard = ""; voiceMsg = "No se pudo activar la voz. Revisa el permiso del micrófono o escribe tu respuesta."; render(); }
+    return;
+  }
+  if (gen !== listenGen) { oido.cancelar(); return; }
+  rec = oido;
+  listenTimer = setTimeout(() => oido.parar(), 15000);   // tope por si no se detecta voz
+  const t = await oido.promesa;
+  if (gen !== listenGen) return;
+  clearTimeout(listenTimer); rec = null;
+  reveal((t || heard).trim());
 }
 function stopRec() {
   listenGen++;   // lo que siga llegando de esta escucha ya no cuenta
   clearTimeout(listenTimer);
   if (!rec) return;
   const r = rec; rec = null;
-  try { r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } catch {}
+  r.cancelar();
 }
+const leerTarjeta = (c) => Sala.leerCorreccion({ ok: !c.correcta, better: c.correcta, natural: c.nativo && c.nativo !== c.correcta ? c.nativo : "", tip: c.tip });
 
 function reveal(said) {
   listenGen++;   // una escucha que aún estaba cargando no debe abrir el micrófono después
@@ -173,7 +163,7 @@ function reveal(said) {
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
   phase = "answer";
   render();
-  Sala.speakEN(current.correcta).catch(() => {});
+  leerTarjeta(current).catch(() => {});
 }
 
 function renderList() {
