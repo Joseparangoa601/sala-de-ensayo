@@ -80,9 +80,10 @@ function render() {
   const c = current;
   let h = `<div class="rc-meta">${esc(c.escena || "Conversación")}${c.reps ? ` · repasada ${c.reps} ${c.reps === 1 ? "vez" : "veces"}` : " · nueva"}</div>`;
   if (c.contexto) h += `<div class="rc-ctx"><b>El personaje dijo</b><span>${esc(c.contexto)}</span></div>`;
-  if (c.dijiste) h += `<div class="rc-ctx"><b>Tú dijiste</b><span class="del">${esc(c.dijiste)}</span></div>`;
+  const natural = c.origen === "natural";   // la frase estaba bien: se muestra sin tachar y se practica la versión natural
+  if (c.dijiste) h += `<div class="rc-ctx"><b>${natural ? "Tu frase estaba bien" : "Tú dijiste"}</b><span class="${natural ? "" : "del"}">${esc(c.dijiste)}</span></div>`;
   if (phase === "ask") {
-    h += `<p class="rc-q">${c.dijiste ? "¿Cómo se dice bien? Dilo en voz alta." : "Di la expresión en voz alta."}</p>
+    h += `<p class="rc-q">${natural ? "¿Cómo lo diría un nativo? Dilo en voz alta." : c.dijiste ? "¿Cómo se dice bien? Dilo en voz alta." : "Di la expresión en voz alta."}</p>
       ${voiceMsg ? `<div class="notice" role="alert">${esc(voiceMsg)}</div>` : ""}
       <div class="rc-actions">
         <button class="primary big" id="rcSpeak">${IC.mic}Decirlo</button>
@@ -95,7 +96,7 @@ function render() {
   } else {
     const s = suggest(sim);
     h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${Math.round(sim * 100)} % igual</em>` : ""}</div>` : "";
-    h += `<div class="proof"><div class="row"><b>Correcto</b><span class="ins">${esc(c.correcta)}</span></div>`;
+    h += `<div class="proof"><div class="row"><b>${natural ? "Nativo" : "Correcto"}</b><span class="${natural ? "alt" : "ins"}">${esc(c.correcta)}</span></div>`;
     if (c.nativo) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.nativo)}</span></div>`;
     if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
     h += `<button class="replay" id="rcListen">${IC.play}Escuchar</button></div>`;
@@ -154,7 +155,9 @@ function stopRec() {
   const r = rec; rec = null;
   r.cancelar();
 }
-const leerTarjeta = (c) => Sala.leerCorreccion({ ok: !c.correcta, better: c.correcta, natural: c.nativo && c.nativo !== c.correcta ? c.nativo : "", tip: c.tip });
+const leerTarjeta = (c) => Sala.leerCorreccion(c.origen === "natural"
+  ? { ok: true, better: "", natural: c.correcta, tip: c.tip }
+  : { ok: false, better: c.correcta, natural: c.nativo && c.nativo !== c.correcta ? c.nativo : "", tip: c.tip });
 
 function reveal(said) {
   listenGen++;   // una escucha que aún estaba cargando no debe abrir el micrófono después
@@ -172,7 +175,7 @@ function renderList() {
   det.querySelector("summary").textContent = `Ver todo el cuaderno (${all.length})`;
   det.querySelector(".list").innerHTML = all.map((c) => `
     <div class="li"><span class="ins">${esc(c.correcta)}</span>
-    ${c.dijiste ? `<span class="del small">${esc(c.dijiste)}</span>` : ""}
+    ${c.dijiste ? `<span class="${c.origen === "natural" ? "" : "del "}small">${esc(c.dijiste)}</span>` : ""}
     <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}${new Date(c.due) <= Date.now() ? "lista para repasar" : `próximo repaso ${enCuanto(c.due)}`}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
 }
 

@@ -114,7 +114,7 @@ const Datos = {
     if (cards.some((c) => !c.archivada && norm(c.correcta) === norm(target))) return null;
     const now = new Date();
     const row = {
-      id: uuid(), origen: "correccion", escena: escena || null, dijiste: dijiste || null,
+      id: uuid(), origen: correcta ? "correccion" : "natural", escena: escena || null, dijiste: dijiste || null,   // sin corrección: estaba bien, solo hay forma más natural
       correcta: target, nativo: correcta && nativo ? nativo : null, tip: tip || null, contexto: contexto || null,
       ...fromFsrs(F.createEmptyCard(now)), archivada: false, creado: now.toISOString(),
     };
