@@ -39,7 +39,7 @@ let sb = null;
 
 /* ---------------- UI helpers ---------------- */
 const icon = (n) => `<svg class="ii" aria-hidden="true"><use href="#i-${n}"/></svg>`;
-window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop"), trash: icon("trash") };
+window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop"), trash: icon("trash"), hide: icon("hide") };
 function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
 }
@@ -1201,6 +1201,10 @@ async function checkVoices() {
 /* ---------------- pantallas ---------------- */
 // Escenas personales (de «Mis objetivos» o «Crea tu escena», guardadas en el perfil del usuario) + las universales
 function allScenes() { return [...store.get("myScenes", []), ...store.get("customScenes", []), ...window.SCENES]; }
+// Las de fábrica son iguales para todos: no se borran, se ocultan en este equipo y se pueden volver a mostrar.
+const ocultas = () => new Set(store.get("escenasOcultas", []));
+function visibleScenes() { const o = ocultas(); return allScenes().filter((s) => !o.has(s.id)); }
+let verOcultas = false;
 function renderHome() {
   const card = (s) => `
     <button class="scene" data-id="${esc(s.id)}">
@@ -1209,10 +1213,33 @@ function renderHome() {
       <span class="who">${esc([s.name, s.who].filter(Boolean).join(" · "))}</span>
       <span class="d">${esc(s.desc)}</span></span>
     </button>`;
-  $("#scenes").innerHTML = allScenes().map(card).join("");
+  // En Conversar cada tarjeta lleva su acción aparte: tocar la tarjeta sigue siendo empezar a conversar
+  const propias = new Set(store.get("myScenes", []).map((s) => s.id)), fabrica = new Set(window.SCENES.map((s) => s.id)), o = ocultas();
+  const nOcultas = allScenes().filter((s) => o.has(s.id)).length;
+  if (!nOcultas) verOcultas = false;
+  const fila = (s) => {
+    const oculta = o.has(s.id);
+    const accion = propias.has(s.id) ? `<button class="lpen sbin" data-a="borrar" aria-label="Borrar la escena ${esc(s.title)}" title="Borrar la escena">${IC.trash}</button>`
+      : !fabrica.has(s.id) ? ""
+      : oculta ? `<button class="ghost smostrar" data-a="mostrar" aria-label="Volver a mostrar ${esc(s.title)}">Mostrar</button>`
+      : `<button class="lpen" data-a="ocultar" aria-label="Ocultar la escena ${esc(s.title)}" title="Ocultar la escena">${IC.hide}</button>`;
+    return `<div class="srow${oculta ? " oculta" : ""}" data-id="${esc(s.id)}">${card(s)}${accion}</div>`;
+  };
+  const lista = verOcultas ? allScenes() : visibleScenes();
+  $("#scenes").innerHTML = (lista.length ? lista.map(fila).join("") : `<p class="muted small">No tienes escenas a la vista. Crea una con «+ Crea tu escena».</p>`)
+    + (nOcultas ? `<button class="linklike" id="verOcultas">${verOcultas ? "Esconder las ocultas" : `Mostrar ocultas (${nOcultas})`}</button>` : "");
+  $("#verOcultas") && ($("#verOcultas").onclick = () => { verOcultas = !verOcultas; renderHome(); });
+  for (const b of $("#scenes").querySelectorAll("[data-a]")) b.onclick = () => {
+    const row = b.closest(".srow"), id = row.dataset.id, s = allScenes().find((x) => x.id === id);
+    if (b.dataset.a === "ocultar") {
+      store.set("escenasOcultas", [...ocultas(), id]); renderHome();   // aparece «Mostrar ocultas (N)» para recuperarla
+    } else if (b.dataset.a === "mostrar") {
+      store.set("escenasOcultas", [...ocultas()].filter((x) => x !== id)); renderHome();
+    } else confirmarBorrarEscena(row, s);
+  };
   const dayId = sceneOfDay()?.id;
-  $("#hoyScenes").innerHTML = allScenes().filter((s) => s.id !== dayId).slice(0, 3).map(card).join("");
-  for (const b of document.querySelectorAll(".scene")) b.onclick = () => startScene(allScenes().find((s) => s.id === b.dataset.id));
+  $("#hoyScenes").innerHTML = visibleScenes().filter((s) => s.id !== dayId).slice(0, 3).map(card).join("");
+  for (const b of document.querySelectorAll(".scene[data-id]")) b.onclick = () => startScene(allScenes().find((s) => s.id === b.dataset.id));
   $("#levelSel").value = S.level;
   const t = store.get("lastTest", null);
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
@@ -1228,6 +1255,22 @@ function renderHome() {
   renderReminder();
   refreshToday();
 }
+// Borrar una escena propia la quita del perfil (todos tus equipos). Lo que ya practicaste con ella se queda.
+function confirmarBorrarEscena(row, s) {
+  row.classList.add("editing");
+  row.innerHTML = `<p class="small" style="margin:0">¿Borrar <b>${esc(s.title)}</b>? No se puede deshacer. Tus conversaciones y las frases de tu cuaderno se quedan.</p>
+    <div class="lname-btns"><button class="ldanger" data-b="si">Sí, borrar</button><button class="ghost" data-b="no">Cancelar</button></div>
+    <p class="small lname-err" role="alert"></p>`;
+  row.querySelector('[data-b="no"]').onclick = () => renderHome();
+  const si = row.querySelector('[data-b="si"]');
+  si.onclick = async () => {
+    si.disabled = true;
+    try { await Estudio.borrarEscena(s.id); } catch {
+      si.disabled = false; row.querySelector(".lname-err").textContent = "No se pudo borrar. Revisa tu conexión e intenta de nuevo."; return;
+    }
+    renderHome();
+  };
+}
 function renderReviewCount() {
   if (!window.Datos) return;
   const due = Datos.due().length, total = Datos.all().length;
@@ -1239,7 +1282,7 @@ const dayKey = (d = new Date()) => d.toLocaleDateString("en-CA");
 const TODAY = { practiced: false, lesson: null };
 // Una escena por día, en rotación; primero las personales del usuario
 function sceneOfDay() {
-  const all = allScenes(); if (!all.length) return null;
+  const all = visibleScenes(); if (!all.length) return null;
   const mine = all.filter((s) => s.custom), pool = mine.length ? mine : all;
   const n = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5);
   return pool[n % pool.length];
@@ -1426,7 +1469,7 @@ function wire() {
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
     // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave"]) localStorage.removeItem("sala:" + k);
+    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas"]) localStorage.removeItem("sala:" + k);
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };

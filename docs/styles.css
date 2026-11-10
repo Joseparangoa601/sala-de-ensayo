@@ -230,6 +230,12 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .ldel .linklike{align-self:flex-start;min-height:44px;background:none;border:0;padding:0;color:var(--del);text-decoration:underline}
 .ldanger{background:#b4443a;color:#fff;border:0;border-radius:12px;font-weight:600}
 .scene.static{cursor:default}
+.srow{display:flex;align-items:center;gap:4px}
+.srow .scene{flex:1;min-width:0}
+.srow.oculta .scene{opacity:.55}
+.srow.editing{flex-direction:column;align-items:stretch;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
+.smostrar{flex:none;min-height:44px;padding:0 12px}
+#scenes .linklike{min-height:44px;padding:0}
 .debug{position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top) + 56px);max-height:55%;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;z-index:5}
 .debug pre{margin:0;padding:10px;font:.7rem/1.4 var(--mono);white-space:pre-wrap}
 /* iconos y marca */
