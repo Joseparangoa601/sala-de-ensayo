@@ -257,13 +257,13 @@ let ctx = null;
 const player = { queue: [], playing: null, gen: 0, onIdle: null };
 function unlockAudio() {
   if (!ctx) {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const c = ctx = new (window.AudioContext || window.webkitAudioContext)();
     // Interrupción sin salir de la app (llamada, Siri): el audio y el micrófono se detienen sin aviso.
     // Se espera medio segundo para ignorar los cambios breves al configurar la sesión de audio.
-    ctx.onstatechange = () => {
-      if (ctx.state === "running") return;
+    c.onstatechange = () => {
+      if (c.state === "running") return;
       setTimeout(() => {
-        if (ctx.state !== "running" && !preparing && S.scene && ["listening", "hearing", "thinking", "speaking"].includes(S.state)) pauseSession("Se interrumpió el audio. Toca Continuar.");
+        if (c === ctx && c.state !== "running" && !preparing && S.scene && ["listening", "hearing", "thinking", "speaking"].includes(S.state)) pauseSession("Se interrumpió el audio. Toca Continuar.");
       }, 500);
     };
   }
@@ -323,10 +323,8 @@ async function playNext() {
       const src = ctx.createBufferSource();
       src.buffer = buf; src.connect(ctx.destination);
       item.src = src; item.finish = res; src.onended = res; src.start(0);
-      if (item.preview) {
-        setTimeout(res, buf.duration * 1000 + 1500);   // con el audio suspendido «ended» no llega
-        if (ctx.state !== "running") notice("El audio del teléfono está en pausa. Toca Probar otra vez.");
-      }
+      setTimeout(res, buf.duration * 1000 + 1500);   // con el audio suspendido «ended» no llega y la voz quedaría esperando para siempre
+      if (item.preview && ctx.state !== "running") notice("El audio del teléfono está en pausa. Toca Probar otra vez.");
     });
   }
   if (item.onEnd) item.onEnd();
@@ -462,14 +460,20 @@ function f32ToI16(f) {
   return out.buffer;
 }
 
+// Justo después de una llamada el teléfono puede dejar estas esperas sin respuesta: la app no debe quedarse «Preparando…»
+const conTope = (p, ms, code) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code }), ms))]);
+const TOPE_MIC = 10000;
+
 async function startMic() {
-  micStream = await navigator.mediaDevices.getUserMedia({
+  const pedido = navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
+  // Si el permiso llega tarde, ese micrófono ya nadie lo usa: se apaga
+  micStream = await conTope(pedido, TOPE_MIC, "mic_tope").catch((e) => { pedido.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {}); throw e; });
   const stream = micStream;
   try {
     const source = ctx.createMediaStreamSource(stream);
-    vadNode = await vad.AudioNodeVAD.new(ctx, {
+    vadNode = await conTope(vad.AudioNodeVAD.new(ctx, {
       model: "legacy",
       positiveSpeechThreshold: 0.6,
       negativeSpeechThreshold: 0.45,
@@ -480,7 +484,7 @@ async function startMic() {
       onSpeechStart,
       onSpeechEnd,
       onVADMisfire,
-    });
+    }), TOPE_MIC, "vad_tope");
     vadNode.receive(source);
     vadNode.start();
   } catch (e) {
@@ -496,6 +500,27 @@ async function startMic() {
     vadNode = null; micStream = null; micLost = true;   // Continuar o la próxima escena lo abren de nuevo
     if (S.scene && S.state !== "idle") pauseSession("El micrófono se cortó. Toca Continuar.");
   });
+  // Una llamada silencia el micrófono sin apagarlo: la app diría «Escuchando» sin oír nada
+  const pista = stream.getAudioTracks()[0];
+  pista.addEventListener("mute", () => setTimeout(() => {
+    if (stream === micStream && pista.muted && !preparing && S.scene && ["listening", "hearing", "thinking", "speaking"].includes(S.state)) pauseSession("Se interrumpió el micrófono. Toca Continuar.");
+  }, 800));
+}
+// ¿El audio quedó inservible? iOS puede dejarlo así tras una llamada, y reactivarlo no siempre basta.
+function audioDanado() {
+  if (!ctx || ctx.state !== "running") return true;
+  const pista = micStream?.getAudioTracks()[0];
+  return !pista || pista.muted || pista.readyState !== "live";
+}
+// Suelta todo lo de audio. Debe correr dentro del toque en Continuar, para que iOS permita crearlo de nuevo.
+function reiniciarAudio() {
+  try { vadNode?.pause(); } catch {}
+  try { vadNode?.destroy?.(); } catch {}
+  vadNode = null;
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+  const viejo = ctx; ctx = null;
+  if (viejo) { viejo.onstatechange = null; viejo.close().catch(() => {}); }
 }
 
 function onFrame(probs, frame) {
@@ -1136,16 +1161,19 @@ function pauseSession(msg) {
   setState("paused", msg || "");
 }
 async function resumeSession() {
+  // Sesión escrita (sin micrófono): no hay audio que revisar
+  const reconstruir = micLost || (!!vadNode && audioDanado());
+  if (reconstruir) reiniciarAudio();
   unlockAudio();
   azureToken().catch(() => {});           // tras un rato en segundo plano el token puede haber vencido
   keepAwake();
   notice("");
-  if (micLost) {
+  if (reconstruir) {
     micLost = false;
     const scene = S.scene;
     preparing = true;
     setState("thinking", "Preparando micrófono y voz…");
-    try { await azureToken(); await startMic(); } catch (e) { voiceFailed(e); }
+    try { await conTope(azureToken(), TOPE_MIC, "token_tope"); await startMic(); } catch (e) { voiceFailed(e); }
     preparing = false;
     if (S.scene !== scene || S.state !== "thinking") { try { vadNode?.pause(); } catch {} return; }
     setState("listening", "");
