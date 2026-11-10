@@ -89,6 +89,9 @@ function palabrasDichas() {
   return `${Math.round(sim * max)} de ${max} palabras`;
 }
 
+// Oír una frase suelta, normal o más despacio
+const oirBtns = (t) => `<div class="char-acts"><button class="replay" data-oir="${esc(t)}" data-rate="0%" aria-label="Repetir esta frase">${IC.play}Repetir</button><button class="replay" data-oir="${esc(t)}" data-rate="-30%" aria-label="Repetir esta frase más lento">${IC.play}Lento</button></div>`;
+
 function render() {
   const left = queue.length + (current ? 1 : 0);
   $("#reviewCount").textContent = current ? `${left} por repasar · ${done} ${done === 1 ? "hecha" : "hechas"}` : `${done} ${done === 1 ? "repasada" : "repasadas"}`;
@@ -115,7 +118,7 @@ function render() {
   }
   const c = current;
   let h = `<div class="rc-meta">${esc(c.escena || "Conversación")}${c.reps ? ` · repasada ${c.reps} ${c.reps === 1 ? "vez" : "veces"}` : " · nueva"}</div>`;
-  if (c.contexto) h += `<div class="rc-ctx"><b>El personaje dijo</b><span>${esc(c.contexto)}</span></div>`;
+  if (c.contexto) h += `<div class="rc-ctx"><b>El personaje dijo</b><span>${esc(c.contexto)}</span>${phase === "listening" ? "" : oirBtns(c.contexto)}</div>`;
   const natural = c.origen === "natural";   // la frase estaba bien: se muestra sin tachar y se practica la versión natural
   if (c.dijiste) h += `<div class="rc-ctx"><b>${natural ? "Tu frase estaba bien" : "Tú dijiste"}</b><span class="${natural ? "" : "del"}">${esc(c.dijiste)}</span></div>`;
   if (phase === "ask") {
@@ -144,8 +147,8 @@ function render() {
   } else {
     const s = suggest(sim);
     h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>` : "";
-    h += `<div class="proof"><div class="row"><b>${natural ? "Nativo" : "Correcto"}</b><span class="${natural ? "alt" : "ins"}">${esc(c.correcta)}</span></div>`;
-    if (c.nativo) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.nativo)}</span></div>`;
+    h += `<div class="proof"><div class="row"><b>${natural ? "Nativo" : "Correcto"}</b><span class="${natural ? "alt" : "ins"}">${esc(c.correcta)}</span></div>${oirBtns(c.correcta)}`;
+    if (c.nativo) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.nativo)}</span></div>${oirBtns(c.nativo)}`;
     if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
     h += `<button class="replay" id="rcListen">${IC.play}Escuchar</button></div>`;
     const prev = Datos.preview(c);
@@ -166,6 +169,7 @@ function wire() {
   on("rcShow", () => reveal(""));
   on("rcStop", () => { if (rec) rec.parar(); });
   on("rcListen", () => leerTarjeta(current));
+  for (const b of document.querySelectorAll("[data-oir]")) b.onclick = () => { Sala.stopAudio(); Sala.speakEN(b.dataset.oir, { rate: b.dataset.rate }).catch(() => {}); };
   on("rcArchive", () => { Datos.archive(current); next(); });
   const f = document.getElementById("rcType");
   if (f) f.onsubmit = (e) => { e.preventDefault(); const t = $("#rcTypeBox").value.trim(); if (t) reveal(t); };

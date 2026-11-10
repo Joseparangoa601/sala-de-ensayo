@@ -121,6 +121,7 @@ function repetirFrase(texto, rate) {
 // El personaje habla en inglés; el español solo aparece si lo pides.
 function addTraducir(el, texto, acts) {
   const escena = S.scene.title, VER = "Ver en español", OCULTAR = "Ocultar español";
+  const contexto = (S.history || []).filter((t) => t.content !== texto).slice(-6);   // lo dicho hasta esta frase: da el sentido
   const b = document.createElement("button");
   b.type = "button"; b.className = "replay"; b.textContent = VER; b.setAttribute("aria-expanded", "false");
   let caja = null, ocupado = false;
@@ -135,10 +136,10 @@ function addTraducir(el, texto, acts) {
     }
     ocupado = true; b.textContent = "Traduciendo…";
     try {
-      const r = await fnFetch("generar", { modo: "traducir", texto, escena });
+      const r = await fnFetch("generar", { modo: "traducir", texto, escena, contexto });
       const j = await r.json();
       if (!r.ok || !j.es) throw j;
-      S.usage.haikuIn += j.usage?.input_tokens || 0; S.usage.haikuOut += j.usage?.output_tokens || 0;
+      S.usage.sonnetIn += j.usage?.input_tokens || 0; S.usage.sonnetOut += j.usage?.output_tokens || 0;
       caja = document.createElement("p"); caja.className = "trad-es"; caja.lang = "es"; caja.textContent = j.es;
       acts.after(caja);
       b.textContent = OCULTAR; b.setAttribute("aria-expanded", "true");
