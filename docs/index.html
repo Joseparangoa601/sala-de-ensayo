@@ -74,9 +74,12 @@
       <p class="muted small" id="paseHoy" hidden></p>
       <div class="week" id="week"></div>
       <div class="today" id="today"></div>
+      <div class="notice" id="levelNudge" data-kind="info" hidden><b>¿Qué tan bien hablas inglés hoy?</b> Así los personajes te hablan a tu medida. Puedes cambiarlo cuando quieras.
+        <div class="chips lvchips"><button class="chip" data-lv="A2">Básico · A2</button><button class="chip" data-lv="B1">Intermedio · B1</button><button class="chip" data-lv="B2">Intermedio alto · B2</button><button class="chip" data-lv="C1">Avanzado · C1</button></div>
+        <button class="linklike" id="levelTest">No sé: hacer el test de nivel</button></div>
+      <div class="notice" id="goalsNudge" hidden><b>Primero, cuéntale a la app para qué quieres el inglés.</b> Así las conversaciones y las lecciones se ajustan a tu vida. <button class="primary wide" id="goalsNudgeBtn">Definir mis objetivos</button></div>
       <div class="top"><h2 id="masTitulo">Practica también</h2><button class="ghost" id="allScenes">Ver todas</button></div>
       <div class="scenes" id="hoyScenes"></div>
-      <div class="notice" id="goalsNudge" hidden><b>Primero, cuéntale a la app para qué quieres el inglés.</b> Así las conversaciones y las lecciones se ajustan a tu vida. <button class="primary wide" id="goalsNudgeBtn">Definir mis objetivos</button></div>
     </div>
     <div class="tabpanel" data-tab="conversar" hidden>
       <div class="top"><h1>Conversar</h1><button class="ghost" id="newSceneBtn">+ Crea tu escena</button></div>
@@ -155,11 +158,12 @@
     <label class="check"><input type="checkbox" id="manualChk"> Yo decido cuándo termino (toco Listo)</label>
   </div>
   <div class="notice" id="notice" role="status" hidden></div>
-  <div class="logwrap" id="logWrap"><div class="log" id="log" aria-live="polite"></div></div>
+  <!-- El personaje ya se oye en voz alta: anunciar el texto palabra por palabra saturaba el lector de pantalla. Se anuncia el estado. -->
+  <div class="logwrap" id="logWrap"><div class="log" id="log" role="log" aria-live="off"></div></div>
   <div class="stage">
     <button class="orb" id="orb" data-state="idle" aria-describedby="stateLabel"><span class="ring"></span><span class="core"></span><svg class="orb-ic" aria-hidden="true"><use href="#i-mic"/></svg><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
-    <div class="stateLabel" id="stateLabel">Toca para empezar</div>
-    <div class="live" id="live" aria-live="polite"></div>
+    <div class="stateLabel" id="stateLabel" role="status" aria-live="polite">Toca para empezar</div>
+    <div class="live" id="live"></div>
     <div class="stage-act"><button class="primary listo" id="listoBtn" hidden aria-label="Listo, terminé de hablar" title="Barra espaciadora">Listo</button><button class="pause" id="pauseBtn">Pausa</button><button class="pause" id="endBtn" hidden>Terminar</button></div>
   </div>
   <form class="typebar" id="typeForm">

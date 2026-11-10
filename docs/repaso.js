@@ -12,6 +12,7 @@ let queue = [], current = null, phase = "ask", heard = "", sim = null, rec = nul
 let repetida = null;   // tarjeta que ya se marcó «Otra vez» en esta vuelta
 let faltante = "", ayudada = false;   // lo que le faltó decir, y si ya vio ese final en esta vuelta
 let listenGen = 0, listenTimer = null, voiceMsg = "";   // listenGen invalida una escucha en curso al salir o avanzar
+let repite = null;   // si el intento volvió a decir el error que corrige la tarjeta: { falto, repitio }
 
 function fmtWhen(d) {
   const ms = new Date(d) - Date.now();
@@ -63,6 +64,33 @@ function faltaFinal(said, target) {
   if (dicho.length < 3 || dicho.length >= meta.length || dicho.some((w, i) => w !== meta[i].w)) return null;
   return target.slice(meta[dicho.length].i);
 }
+// Las palabras que cambió la corrección: «sobran» (lo dicho mal) y «faltan» (lo que la corrección puso), por subsecuencia común.
+function cambios(dijiste, correcta) {
+  const A = words(dijiste), B = words(correcta);
+  const L = Array.from({ length: A.length + 1 }, () => Array(B.length + 1).fill(0));
+  for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--)
+    L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const sobran = [], faltan = [];
+  let i = 0, j = 0;
+  while (i < A.length && j < B.length) {
+    if (A[i] === B[j]) { i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) sobran.push(A[i++]);
+    else faltan.push(B[j++]);
+  }
+  sobran.push(...A.slice(i)); faltan.push(...B.slice(j));
+  return { sobran: sobran.filter((w) => !B.includes(w)), faltan };
+}
+// ¿Repitió el error que la tarjeta corrige? Falta una palabra que puso la corrección o volvió a decir la que sobraba.
+// Si lo dicho se parece más a la versión nativa, se juzga por esa versión y no se aplica.
+function errorRepetido(said, c) {
+  if (!said || !c.dijiste || c.origen === "natural") return null;
+  if (c.nativo && wordSim(said, c.nativo) > wordSim(said, c.correcta)) return null;
+  const { sobran, faltan } = cambios(c.dijiste, c.correcta);
+  if (!sobran.length && !faltan.length) return null;
+  const S = new Set(words(said));
+  const falto = faltan.filter((w) => !S.has(w)), repitio = sobran.filter((w) => S.has(w));
+  return falto.length || repitio.length ? { falto, repitio } : null;
+}
 // Sin intento que comparar no se sugiere ninguna calificación (0 no coincide con ningún botón)
 function suggest(s) { return s == null ? 0 : s >= 0.95 ? 4 : s >= 0.8 ? 3 : s >= 0.6 ? 2 : 1; }
 
@@ -77,7 +105,7 @@ function next() {
   stopRec();
   Sala.stopAudio();   // que la frase anterior no siga sonando ni la capte el micrófono
   current = queue.shift() || null;
-  repetida = null; ayudada = false; faltante = "";
+  repetida = null; ayudada = false; faltante = ""; repite = null;
   phase = "ask"; heard = ""; sim = null; voiceMsg = "";
   render();
 }
@@ -90,7 +118,7 @@ function palabrasDichas() {
 }
 
 // Oír una frase suelta, normal o más despacio
-const oirBtns = (t) => `<div class="char-acts"><button class="replay" data-oir="${esc(t)}" data-rate="0%" aria-label="Repetir esta frase">${IC.play}Repetir</button><button class="replay" data-oir="${esc(t)}" data-rate="-30%" aria-label="Repetir esta frase más lento">${IC.play}Lento</button></div>`;
+const oirBtns = (t) => `<div class="char-acts"><button class="replay" data-oir="${esc(t)}" data-rate="0%" aria-label="Repetir esta frase">${IC.play}Repetir</button><button class="replay" data-oir="${esc(t)}" data-rate="-15%" aria-label="Repetir esta frase más lento">${IC.play}Lento</button></div>`;
 
 function render() {
   const left = queue.length + (current ? 1 : 0);
@@ -145,8 +173,12 @@ function render() {
       </div>
       <form id="rcType" class="row2"><input id="rcTypeBox" placeholder="…o escríbela" autocomplete="off" aria-label="Escribir la frase completa"><button class="ghost">OK</button></form>`;
   } else {
-    const s = suggest(sim);
+    const s = repite ? 1 : suggest(sim);   // repetir el error no es «Bien», aunque casi todas las palabras coincidan
     h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>` : "";
+    if (repite) h += `<div class="notice" data-kind="warn" role="status"><b>Se repitió el error.</b> ${[
+      repite.repitio.length ? `Volviste a decir «${esc(repite.repitio.join(" "))}».` : "",
+      repite.falto.length ? `Faltó «${esc(repite.falto.join(" "))}».` : "",
+    ].filter(Boolean).join(" ")}</div>`;
     h += `<div class="proof"><div class="row"><b>${natural ? "Nativo" : "Correcto"}</b><span class="${natural ? "alt" : "ins"}">${esc(c.correcta)}</span></div>${oirBtns(c.correcta)}`;
     if (c.nativo) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.nativo)}</span></div>${oirBtns(c.nativo)}`;
     if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
@@ -184,7 +216,7 @@ function otraVez() {
   if (repetida !== current.id) Datos.review(current, 1, { dicho: heard || null, similitud: sim });
   repetida = current.id;
   stopRec(); Sala.stopAudio();
-  phase = "ask"; heard = ""; sim = null; voiceMsg = "";
+  phase = "ask"; heard = ""; sim = null; voiceMsg = ""; repite = null;
   render();
 }
 
@@ -239,7 +271,8 @@ function reveal(said) {
   heard = said;
   sim = said ? wordSim(said, current.correcta) : null;
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
-  if (sim != null && sim >= 0.95) return acierto();
+  repite = errorRepetido(said, current);
+  if (sim != null && sim >= 0.95 && !repite) return acierto();
   const falta = said ? faltaFinal(said, current.nativo) || faltaFinal(said, current.correcta) : null;
   if (falta) { faltante = falta; ayudada = true; phase = "parcial"; render(); return; }   // no se equivocó: no hay «Mejor di» que leerle
   phase = "answer";
@@ -261,5 +294,5 @@ document.addEventListener("DOMContentLoaded", () => {
   const back = $("#reviewBack");
   if (back) back.onclick = () => { stopRec(); Sala.stopAudio(); Sala.backHome(); };
 });
-window.Repaso = { open, _wordSim: wordSim, _faltaFinal: faltaFinal };
+window.Repaso = { open, _wordSim: wordSim, _faltaFinal: faltaFinal, _errorRepetido: errorRepetido };
 })();

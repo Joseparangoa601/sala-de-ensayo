@@ -261,7 +261,7 @@
   <h2>El piloto</h2>
   <div class="card pilot">
     <p><b>50 cupos de fundador · 30 días · 5 horas de voz · USD 15</b> (≈ COP 48.500 · MXN 279). Pago único, sin renovación automática. Después de los fundadores el precio será USD 19.</p>
-    <p>Son 30 porque queremos hablar con cada persona y ajustar la app con lo que nos cuente; con más gente no podríamos hacerlo bien. Funciona en el navegador del celular (aún no está en las tiendas).</p>
+    <p>Son solo 50 porque queremos hablar con cada persona y ajustar la app con lo que nos cuente; con más gente no podríamos hacerlo bien. Funciona en el navegador del celular (aún no está en las tiendas).</p>
     <button class="cta" data-cta="pilot">Quiero mi cupo · USD 15<small>Hoy solo dejas tu correo</small></button>
   </div>
 
@@ -311,11 +311,13 @@
     return fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
       body: JSON.stringify({ evento, sid, utm, ...extra }) });
   }
-  track("visita").catch(() => {});
+  // Solo el sitio publicado cuenta en el embudo: una copia local no suma visitas ni toques
+  const enProduccion = location.hostname === "sala.lead10x.com.co";
+  if (enProduccion) track("visita").catch(() => {});
   const dlg = document.getElementById("dlg");
   let ctaSent = false;
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
-    if (!ctaSent) { ctaSent = true; track("cta", { donde: b.dataset.cta }).catch(() => {}); }
+    if (!ctaSent && enProduccion) { ctaSent = true; track("cta", { donde: b.dataset.cta }).catch(() => {}); }
     document.getElementById("er").textContent = "";
     document.querySelector(".form").style.display = "";
     document.querySelector(".done").style.display = "";

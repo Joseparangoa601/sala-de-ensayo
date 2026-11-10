@@ -324,8 +324,8 @@ async function finishTest(skipEval) {
     if (fallo) {
       if (g !== screenGen) return;
       onBack = testBack;
-      body(err("No pude evaluar tu parte oral. Tus respuestas siguen guardadas aquí: intenta de nuevo.")
-        + `<p class="muted small">Detalle: ${esc(fallo.error || fallo.name || fallo.code || fallo.message || "sin respuesta")}</p>
+      body(err(Sala.limiteMsg(fallo) || "No pude evaluar tu parte oral. Tus respuestas siguen guardadas aquí: intenta de nuevo.")
+        + `<details class="tecnico"><summary>Ver detalle técnico</summary><p class="muted small">${esc(fallo.error || fallo.name || fallo.code || fallo.message || "sin respuesta")}</p></details>
           <button class="primary wide" id="tRetry">Reintentar</button>
           ${t.receptivo ? `<button class="ghost wide" id="tNoOral">Ver el resultado sin la parte oral</button>` : ""}`);
       on("tRetry", () => finishTest());
@@ -578,7 +578,8 @@ async function fetchTranscript(url, g, otraParte = false) {
       no_transcript: "Este video no tiene subtítulos en inglés que pueda leer. Pega la transcripción abajo (si YouTube la muestra) o prueba otro video.",
       supadata_quota: "Se acabó el cupo gratuito de transcripciones de este mes. Pega la transcripción abajo.",
       red: "No pude conectarme. Revisa tu conexión o pega la transcripción abajo.",
-    }[j.error] || "No pude traer los subtítulos. Pega la transcripción abajo.";
+      cuota_diaria: "Hoy ya trajiste los subtítulos de varios videos. Pega la transcripción abajo o vuelve mañana.",
+    }[j.error] || (j.error === "sin_horas" && Sala.limiteMsg(j)) || "No pude traer los subtítulos. Pega la transcripción abajo.";
     status(err(msg));
     const box = $("#vPasteBox"); if (box) box.open = true;
     return;
@@ -697,10 +698,10 @@ async function generate(src, level) {
   } catch (e) {
     console.warn("generar", e);
     const net = !e?.error;   // sin respuesta del servidor = problema de red; con código = el servidor contestó
-    const msg = e?.error === "rate_limited" ? "Demasiadas solicitudes seguidas. Espera un minuto."
+    const msg = Sala.limiteMsg(e) || (e?.error === "rate_limited" ? "Demasiadas solicitudes seguidas. Espera un minuto."
       : net ? "No pude enviar el video para crear la lección. Revisa tu conexión e intenta de nuevo."
-      : "El servidor no pudo empezar la lección. Intenta de nuevo en unos minutos.";
-    status(err(msg) + `<p class="muted small">Detalle: ${esc([e?.error || e?.name || e?.message || "sin respuesta", e?.detail].filter(Boolean).join(" · "))}</p><button class="ghost wide" id="vRetry">Reintentar</button>`);
+      : "El servidor no pudo empezar la lección. Intenta de nuevo en unos minutos.");
+    status(err(msg) + `<details class="tecnico"><summary>Ver detalle técnico</summary><p class="muted small">${esc([e?.error || e?.name || e?.message || "sin respuesta", e?.detail].filter(Boolean).join(" · "))}</p></details><button class="ghost wide" id="vRetry">Reintentar</button>`);
     on("vRetry", () => generate(src, lv));
     return;
   }
@@ -726,13 +727,13 @@ async function waitLesson(id, t0) {
     if (row && lessonReady(row)) {
       clearInterval(tick);
       try { cacheLesson(row); await openLesson(row.id); }
-      catch (e) { status(err("La lección se creó, pero no pude abrirla.") + `<p class="muted small">Detalle: ${esc(e?.message || String(e))}</p>`); }
+      catch (e) { status(err("La lección se creó, pero no pude abrirla.") + `<details class="tecnico"><summary>Ver detalle técnico</summary><p class="muted small">${esc(e?.message || String(e))}</p></details>`); }
       return;
     }
     if (est === "error") {
       clearInterval(tick);
       const e = row.tokens.error;
-      status(err(e === "truncated" ? "El video es demasiado largo para una sola lección. Prueba uno más corto." : "No pude crear la lección.") + `<p class="muted small">Detalle: ${esc(e || "error")}</p><button class="ghost wide" id="vBack2">Volver</button>`);
+      status(err(e === "truncated" ? "El video es demasiado largo para una sola lección. Prueba uno más corto." : "No pude crear la lección.") + `<details class="tecnico"><summary>Ver detalle técnico</summary><p class="muted small">${esc(e || "error")}</p></details><button class="ghost wide" id="vBack2">Volver</button>`);
       on("vBack2", () => videoHome());
       return;
     }
@@ -762,7 +763,7 @@ const inProgress = (r) => r?.tokens?.estado === "creando" && Date.now() - Date.p
 function offerRetry(row) {
   const est = row.tokens?.estado;
   status(err(est === "error" ? "Esta lección no se pudo crear." : "Esta lección no terminó de crearse.")
-    + `<p class="muted small">Detalle: ${esc(row.tokens?.error || est || "error")}</p><button class="ghost wide" id="vRetryRow">Intentarlo de nuevo</button>`);
+    + `<details class="tecnico"><summary>Ver detalle técnico</summary><p class="muted small">${esc(row.tokens?.error || est || "error")}</p></details><button class="ghost wide" id="vRetryRow">Intentarlo de nuevo</button>`);
   on("vRetryRow", () => {
     generate({ videoId: row.video_id || null, chunks: row.transcripcion || [], fuente: row.fuente || "supadata", title: row.titulo === "Lección en preparación" ? "" : row.titulo || "" }, row.nivel);
     // Sin video el servidor crea una fila nueva: se quita la fallida para no dejarla repetida
@@ -822,7 +823,7 @@ function playRange(a, b, { rate = 1, text = "" } = {}) {
       $("#stepBody")?.insertAdjacentHTML("afterbegin", `<p class="muted small" id="ytHint">¿No arranca? En iPhone a veces hay que tocar primero el botón de reproducir dentro del video. Tócalo una vez y vuelve a intentarlo.</p>`);
     }, 3000);
   } else if (text) {
-    sayEN(text, { rate: rate < 1 ? "-25%" : "0%" });
+    sayEN(text, { rate: rate < 1 ? "-15%" : "0%" });   // lento: −15 % con pausas (más claro que estirar la voz)
   }
 }
 function stopVideo() { stopRange(); try { YTP?.pauseVideo(); } catch {} }
@@ -1130,7 +1131,7 @@ function step6() {
   const p = LS.L.personaje || {};
   const exprs = (LS.L.expresiones || []).map((e) => e.en);
   const mine = LS, guardado = nivelHabla(LS.row.progreso.nivel_habla);
-  let test = nivelHabla(store().get("lastTest", null)?.nivel), elegido = guardado || test || "B2", tocado = !!guardado;
+  let test = nivelHabla(store().get("lastTest", null)?.nivel), elegido = guardado || test || nivelHabla(Sala.level()) || "B1", tocado = !!guardado;
   sb_(`
     <div class="stack"><p class="rc-q small" style="margin:0">¿En qué nivel quieres practicar?</p>
       <div class="rates five" role="group" aria-label="Nivel de la conversación">${NIVELES_HABLA.map((n) => `<button class="rate" data-nv="${n}"><span>${n}</span></button>`).join("")}</div>
@@ -1328,7 +1329,7 @@ async function makeGoalScenes(btn, confirmar) {
     if (g === screenGen) { leave(); Sala.backHome(); } else if (!$("#home").hidden) Sala.backHome();
   } catch (e) {
     btn.disabled = false; btn.textContent = "Reintentar";
-    btn.insertAdjacentHTML("afterend", err(`No pude crear las escenas (${e?.error || "error"}).`));
+    btn.insertAdjacentHTML("afterend", err(Sala.limiteMsg(e) || "No pude crear las escenas. Intenta de nuevo en unos minutos."));
   }
 }
 
@@ -1388,8 +1389,8 @@ function sceneHome() {
         if (cur.length >= 16) confirmDrop($("#scSave"), cur.slice(15).map((s) => s.title), doSave); else doSave();
       });
       on("scRedo", () => $("#scGo").click());
-    } catch {
-      if (g === screenGen) $("#scOut").innerHTML = err("No pude crear la escena. Intenta de nuevo.");
+    } catch (e) {
+      if (g === screenGen) $("#scOut").innerHTML = err(Sala.limiteMsg(e) || "No pude crear la escena. Intenta de nuevo.");
     } finally { const b = $("#scGo"); if (b && g === screenGen) b.disabled = false; }
   });
 }

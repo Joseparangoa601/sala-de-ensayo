@@ -127,7 +127,7 @@ input,select{min-height:44px;border:1px solid var(--line);border-radius:10px;bac
 .rates{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .rate{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:12px;min-height:56px;padding:4px}
 .rate span{font-weight:600;font-size:.9rem}
-.rate small{color:var(--muted);font-size:.72rem}
+.rate small{color:var(--muted);font-size:.75rem}
 .rate.sug{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .linklike{background:none;border:0;color:var(--muted);text-decoration:underline;font-size:.85rem;align-self:flex-start}
 .list{display:flex;flex-direction:column;gap:8px;padding-top:6px}
@@ -165,7 +165,7 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .result small{color:var(--muted)}.result strong{font-size:3rem;line-height:1.1;color:var(--accent)}.result span{color:var(--muted);font-size:.9rem}
 .skills,.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
 .skills div,.kpis div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column}
-.skills small,.kpis small{color:var(--muted);font-size:.72rem}.skills b,.kpis b{font-size:1.2rem}
+.skills small,.kpis small{color:var(--muted);font-size:.75rem}.skills b,.kpis b{font-size:1.2rem}
 .kpis small.up{color:var(--ins)}.kpis small.down{color:var(--del)}
 .ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 .spinner{width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);margin:4px auto}
@@ -181,6 +181,7 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .chip.static{display:inline-flex;align-items:center}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
+.lvchips{margin:10px 0 2px}
 .chips .chip{white-space:normal;text-align:left;flex:0 1 auto;max-width:100%;padding:8px 12px}
 .exprs{display:grid;gap:8px}
 .expr{display:flex;flex-direction:column;gap:3px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
@@ -198,7 +199,7 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .gap.right{border-color:var(--ins);color:var(--ins)}.gap.wrong{border-color:var(--del);color:var(--del)}
 .scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:6px;margin-top:6px}
 .scores div{display:flex;flex-direction:column;align-items:center;border:1px solid var(--line);border-radius:10px;padding:4px}
-.scores b{font-size:1.2rem}.scores small{font-size:.7rem;color:var(--muted)}
+.scores b{font-size:1.2rem}.scores small{font-size:.75rem;color:var(--muted)}
 .pwords{line-height:1.9;margin:6px 0}
 .pwords span{padding:1px 3px;border-radius:4px}
 .pwords button{min-height:0;background:none;border:0;padding:1px 3px;border-radius:4px;font:inherit}
@@ -210,7 +211,7 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .bars{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;height:110px;align-items:end}
 .bars div{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:2px}
 .bars span{display:block;width:100%;min-height:2px;background:var(--accent);border-radius:3px 3px 0 0}
-.bars small{font-size:.65rem;color:var(--muted)}
+.bars small{font-size:.75rem;color:var(--muted)}
 .li.lesson{text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:6px 0}
 .lrow{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line);padding:8px 0}
 .lrow.editing{flex-direction:column;align-items:stretch;gap:8px}
@@ -281,13 +282,13 @@ button:disabled{opacity:.55}
 .scenes{grid-template-columns:minmax(0,1fr)}
 .homebody{overflow-x:hidden}
 .tabbar{display:flex;flex:none;border-top:1px solid var(--line);background:var(--surface);margin-bottom:calc(-1*env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
-.tabbar button{flex:1;min-height:54px;background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.7rem;font-weight:600;color:var(--muted)}
+.tabbar button{flex:1;min-height:54px;background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.75rem;font-weight:600;color:var(--muted)}
 .tabbar svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tabbar button[aria-current="page"]{color:var(--accent)}
 .tiles.one{grid-template-columns:1fr}
 .tiles.one .tile{align-items:center;padding:12px 14px}
 .week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;min-height:58px}
-.wd{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.72rem;font-weight:600;color:var(--muted)}
+.wd{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.75rem;font-weight:600;color:var(--muted)}
 .wd i{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:.85rem;background:var(--surface);border:1px solid var(--line)}
 .wd.on i{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .wd.now{color:var(--accent)}
@@ -399,3 +400,7 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
   .tabpanel[data-tab="aprender"] .tiles.one,.tabpanel[data-tab="tu"] .tiles.one{grid-template-columns:repeat(2,minmax(0,1fr))}
   #loginForm{flex:none;width:440px;max-width:calc(100% - 32px);padding:32px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 28px rgba(14,18,22,.08)}
 }
+
+/* Códigos técnicos de un error: plegados, para soporte; la persona ve el mensaje en palabras */
+.tecnico summary{min-height:44px;display:flex;align-items:center;color:var(--muted);font-size:.75rem;cursor:pointer}
+.tecnico p{margin:0 0 8px}

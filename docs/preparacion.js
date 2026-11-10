@@ -27,9 +27,8 @@ const friendly = {
   sin_cargo: "Escribe el cargo para el que te preparas.",
   muy_corta: "Esa respuesta es muy corta para evaluarla.",
   rate_limited: "Vas muy rápido. Espera un minuto e inténtalo de nuevo.",
-  sin_horas: "Tu pase ya no está vigente.",
 };
-const failMsg = (j) => friendly[j?.error] || "No pude completar eso. Revisa tu conexión e inténtalo de nuevo.";
+const failMsg = (j) => Sala.limiteMsg(j) || friendly[j?.error] || "No pude completar eso. Revisa tu conexión e inténtalo de nuevo.";
 
 async function load() {
   const [a, b, c] = await Promise.all([
@@ -148,6 +147,7 @@ function hub() {
   const lbl = { cubierto: "Con evidencia", parcial: "Evidencia parcial", sin_evidencia: "Sin evidencia" };
   paint(`<h1>${esc(P.row.cargo || "Tu entrevista")}</h1>
     <p class="muted">${esc(P.row.empresa || "")}${P.row.empresa && quando ? " · " : ""}${esc(quando)}</p>
+    ${pendiente() ? `<div class="notice" data-kind="info"><b>Tienes un simulacro sin informe.</b> Quedó guardado en este teléfono. <button class="primary wide" id="pPend">Pedir el informe</button><button class="linklike" id="pPendNo">Descartarlo</button></div>` : ""}
     <div class="prep-ix"><b>${ix.total}</b><span><strong>${esc(etapa(ix.total))}</strong><small>Índice de preparación de 0 a 100</small></span></div>
     <div class="kpis"><div><small>Preguntas</small><b>${ix.buenas}/${preguntas().length}</b></div><div><small>Historias</small><b>${hs.filter(completa).length}/5</b></div><div><small>Simulacros</small><b>${P.intentos.filter((x) => x.tipo === "simulacro").length}</b></div></div>
     <p class="muted small">El índice mide lo que ensayaste aquí: preguntas con 75 o más (30), historias completas (20), último simulacro (50). No predice la decisión de la empresa.</p>
@@ -163,6 +163,8 @@ function hub() {
     ${a.resumen_es ? `<div class="rc-ctx"><b>Lo que pide este cargo</b><span>${esc(a.resumen_es)}</span></div>` : ""}
     ${reqs.length ? `<details class="prefs"><summary>Tu evidencia frente al cargo</summary><div class="list">${reqs.map((r) => `<div class="li"><span>${esc(r.requisito_es)}</span><span class="meta">${r.origen === "tipico" ? "Típico del cargo · " : ""}${esc(lbl[r.estado] || "")}${r.evidencia_es ? " · " + esc(r.evidencia_es) : ""}</span></div>`).join("")}</div></details>` : ""}
     <button class="linklike" id="pDel">Borrar mi expediente</button>`);
+  on("pPend", () => afterSim());
+  on("pPendNo", () => { Sala.store.set(PENDIENTE, null); hub(); });
   for (const b of document.querySelectorAll("[data-t]")) b.onclick = () => {
     const t = pl.hoy[Number(b.dataset.t)];
     if (t.k === "h") story(t.i); else if (t.k === "q") practice(t.q); else simulacro();
@@ -307,8 +309,18 @@ Interview plan. The candidate already heard "Tell me about yourself". Then ask t
 After each answer you may ask ONE short follow-up if it was vague, asking for a specific example or number. Never give feedback, praise or coaching during the interview. When all the questions are done, thank the candidate, say what happens next in one sentence and end the interview.`;
   Sala.startScene({ id: "simulacro", prep: true, returnTo: { kind: "prep" }, title: SIM, name: "Morgan Reed", who: "Gerente de contratación", desc: `Entrevista de trabajo para ${cargo}: responder con hechos concretos, acciones propias y resultados medibles.`, persona: persona.slice(0, 3900), open: `Hi, thanks for making the time. I'm Morgan Reed, the hiring manager for this role. Let's get started. Tell me about yourself.`, voice: "en-US-AndrewMultilingualNeural" });
 }
+// El simulacro queda guardado en este equipo hasta que llegue su informe: sin señal o si iOS cierra la app no se pierde.
+const PENDIENTE = "simPendiente";
+const pendiente = () => {
+  const p = Sala.store.get(PENDIENTE, null);
+  return p && Array.isArray(p.hist) && Date.now() - Date.parse(p.fecha) < 7 * 864e5 ? p : null;
+};
+function guardarSim(hist) {
+  P.hist = hist;
+  if (hist && hist.filter((t) => t.role === "user").length >= 3) Sala.store.set(PENDIENTE, { hist, fecha: new Date().toISOString() });
+}
 async function afterSim() {
-  const hist = P.hist; P.hist = null;
+  const hist = P.hist || pendiente()?.hist; P.hist = null;
   if (!hist || hist.filter((t) => t.role === "user").length < 3) return open();
   const g = scr("Informe del simulacro", "", open, BACK);
   paint(`<p class="muted">Revisando cómo te vendiste en cada respuesta…</p>`);
@@ -316,9 +328,16 @@ async function afterSim() {
     const r = await Sala.fnFetch("entrevista", { modo: "informe", turnos: hist });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw j;
+    Sala.store.set(PENDIENTE, null);
     if (g !== run) return;
     report(j.informe, j.puntaje);
-  } catch (j) { if (g === run) paint(E()._err(failMsg(j)) + `<button class="ghost wide" id="iBack">Volver al expediente</button>`); on("iBack", open); }
+  } catch (j) {
+    if (g !== run) return;
+    paint(E()._err(failMsg(j)) + `<p class="muted small">Tu simulacro quedó guardado en este teléfono. Puedes pedir el informe ahora o más tarde desde tu expediente.</p>
+      <button class="primary wide" id="iRetry">Pedir el informe otra vez</button><button class="ghost wide" id="iBack">Volver al expediente</button>`);
+    on("iRetry", () => { P.hist = hist; afterSim(); });
+    on("iBack", open);
+  }
 }
 function report(v, puntaje) {
   const dot = (e) => (SIGNO[e] || SIGNO.no)[0];
@@ -391,5 +410,5 @@ function avance() {
 }
 
 document.addEventListener("DOMContentLoaded", () => { on("prepBtn", open); });
-window.Prep = { open, afterSim, setHist: (h) => { P.hist = h; } };
+window.Prep = { open, afterSim, setHist: guardarSim };
 })();

@@ -20,7 +20,7 @@ const S = {
   scene: null,
   history: [],            // {role, content}
   state: "idle",          // idle | listening | hearing | thinking | speaking | paused
-  level: store.get("level", "B2"),
+  level: store.get("level", "B1"),   // sin nivel elegido ni test: B1 (B2 dejaba atrás a quien empieza en A2)
   rate: store.get("rate", 0),          // % de velocidad SSML
   voices: store.get("voices", {}),     // sceneId → voz elegida
   bargeIn: store.get("bargeIn", true),
@@ -102,7 +102,7 @@ function addAyudas(el, texto) {
   };
   oir("Repetir", undefined, "Repetir esta frase");
   if (S.scene?.prep) return;
-  oir("Lento", -30, "Repetir esta frase más lento");
+  oir("Lento", LENTO, "Repetir esta frase más lento");
   addTraducir(el, texto, acts);
 }
 // Suena como una corrección: el micrófono no la toma como si la hubieras dicho tú, y se salta tocando el círculo.
@@ -145,7 +145,8 @@ function addTraducir(el, texto, acts) {
       b.textContent = OCULTAR; b.setAttribute("aria-expanded", "true");
       mostrar();
     } catch (e) {
-      b.textContent = e?.error === "rate_limited" ? "Espera un momento y toca de nuevo" : "No se pudo traducir. Toca para reintentar";
+      b.textContent = e?.error === "cuota_diaria" ? "Ya no hay más traducciones hoy" : e?.error === "sin_horas" ? "Sin horas en tu pase"
+        : e?.error === "rate_limited" ? "Espera un momento y toca de nuevo" : "No se pudo traducir. Toca para reintentar";
     }
     ocupado = false;
   };
@@ -234,9 +235,15 @@ function makeSynth() {
   try { SDK.Connection.fromSynthesizer(AZ.synth).openConnection(); } catch {}
 }
 function voiceFor(scene) { return S.voices[scene.id] || scene.voice; }
+// «Lento» no estira las vocales: baja solo un poco la velocidad y pone pausas donde una persona respira.
+const LENTO = -15;
+function conPausas(text, lento) {
+  const t = escXml(text);
+  return lento ? t.replace(/([,;:])\s+/g, '$1<break time="300ms"/> ').replace(/([.!?])\s+(?=\S)/g, '$1<break time="450ms"/> ') : t;
+}
 function ssml(text, voice, velocidad = S.rate) {
   const rate = velocidad ? `${velocidad > 0 ? "+" : ""}${velocidad}%` : "0%";
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${escXml(text)}</prosody></voice></speak>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${conPausas(text, velocidad <= LENTO)}</prosody></voice></speak>`;
 }
 function azureSynthSsml(doc, chars) {
   return new Promise((resolve, reject) => {
@@ -312,6 +319,8 @@ async function playNext() {
   if (!item.preview && S.state !== "speaking" && S.state !== "paused") setState("speaking");   // oír algo en pausa no reanuda la conversación
   if (item.onStart) item.onStart();
   if (buf && buf.fallback) {
+    // Cambiar a la voz del teléfono sin decirlo hace pensar que la app se dañó: se avisa una vez por escena
+    if (S.scene && !S.avisoVozSistema && $("#talk") && !$("#talk").hidden) { S.avisoVozSistema = true; notice("La voz del personaje no cargó. Por ahora uso la voz del teléfono; el texto de cada respuesta queda escrito arriba.", "info"); }
     if (item.parts) {   // corrección: cada parte en su idioma
       for (const [lang, t] of item.parts) {
         if (item.gen !== S.gen) break;
@@ -1007,7 +1016,7 @@ const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófon
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
   coachQ.length = 0;
-  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.recapRender = null; S.lastCoachText = "";
+  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
   turno.partes = []; turno.cerrando = false; turno.segmento = null;
   $("#log").innerHTML = briefHTML(scene);
   $("#sceneName").textContent = scene.title;
@@ -1061,6 +1070,12 @@ function openScene() {
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
 }
 const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";
+// Respuestas del servidor por pase o por tope diario, en palabras de la persona (null si no es ninguno de los dos)
+function limiteMsg(j) {
+  if (j?.error === "sin_horas" || j?.code === "sin_horas") return paseMsg(j.motivo);
+  if (j?.error === "cuota_diaria") return "Llegaste al máximo de hoy para esto. Mañana puedes seguir.";
+  return null;
+}
 // Quien compró el pase ve Hoy centrado en su entrevista; el resto ve la pantalla de siempre.
 function marcarPase(hay) {
   document.body.classList.toggle("con-pase", hay);
@@ -1289,6 +1304,7 @@ function renderHome() {
   marcarPase(store.get("conPase", false));
   paintPase();
   $("#goalsNudge").hidden = !!gs || !store.get("perfilSynced", false);
+  $("#levelNudge").hidden = store.get("level", null) !== null || !!t;   // solo a quien nunca eligió nivel ni hizo el test
   $("#rateSel").value = String(S.rate);
   $("#bargeChk").checked = S.bargeIn;
   $("#corrChk").checked = S.voiceCorr;
@@ -1513,12 +1529,14 @@ function wire() {
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
     // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas"]) localStorage.removeItem("sala:" + k);
+    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente"]) localStorage.removeItem("sala:" + k);
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
   $("#goalsBtn").onclick = () => window.Estudio?.goals();
   $("#goalsNudgeBtn").onclick = () => window.Estudio?.goals();
+  for (const b of document.querySelectorAll("#levelNudge [data-lv]")) b.onclick = () => { setLevel(b.dataset.lv); renderHome(); };
+  $("#levelTest").onclick = () => window.Estudio?.test();
   ojoClave($("#loginForm"));
 }
 
@@ -1570,7 +1588,8 @@ function speakEN(text, opts = {}) {
   }
   unlockAudio();                          // con el AudioContext suspendido el audio nunca termina y la cola queda bloqueada
   const voice = opts.voice || "en-US-AvaMultilingualNeural";
-  const doc = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${opts.rate || "-8%"}">${escXml(text)}</prosody></voice></speak>`;
+  const rate = opts.rate || "-8%";
+  const doc = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${conPausas(text, parseInt(rate, 10) <= LENTO)}</prosody></voice></speak>`;
   const now_ = { key, gen: S.gen, until: Date.now() + 12000 + text.length * 150 };
   now_.promise = new Promise((resolve) => speakItem({ text, gen: S.gen, ssml: doc, coach: true, plain: text, onEnd: () => { if (enNow === now_) enNow = null; resolve(); } }));
   enNow = now_;
@@ -1578,7 +1597,7 @@ function speakEN(text, opts = {}) {
 }
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
-  ojoClave,
+  ojoClave, limiteMsg,
   // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente
   olvidarEscena(id, titulos) {
     delete S.voices[id]; store.set("voices", S.voices);
