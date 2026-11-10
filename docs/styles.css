@@ -230,12 +230,25 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .ldel .linklike{align-self:flex-start;min-height:44px;background:none;border:0;padding:0;color:var(--del);text-decoration:underline}
 .ldanger{background:#b4443a;color:#fff;border:0;border-radius:12px;font-weight:600}
 .scene.static{cursor:default}
-.srow{display:flex;align-items:center;gap:4px}
+.sbar{display:flex;justify-content:flex-end;margin:-6px 0 -8px}
+.linkbtn{background:none;border:0;color:var(--accent);font-weight:600;font-size:.95rem;min-height:44px;padding:0 4px}
+.linkbtn.on{font-weight:700}
+.srow{display:flex;align-items:center;gap:8px}
 .srow .scene{flex:1;min-width:0}
-.srow.oculta .scene{opacity:.55}
+.srow.oculta .scene{opacity:.5}
 .srow.editing{flex-direction:column;align-items:stretch;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
-.smostrar{flex:none;min-height:44px;padding:0 12px}
-#scenes .linklike{min-height:44px;padding:0}
+.shint{margin:0}
+#scenes.editando .scene{cursor:default}
+.sbtn{flex:none;min-height:44px;min-width:84px;padding:0 14px;border-radius:12px;font-weight:600;border:1px solid var(--line);background:var(--surface);color:inherit}
+.srow.editar .sa-borrar{color:#b4443a;border-color:color-mix(in srgb,#b4443a 45%,var(--line))}
+/* Deslizar (solo táctil): la acción espera detrás de la tarjeta, a la derecha */
+.srow.desliza{position:relative;touch-action:pan-y;border-radius:14px;overflow:hidden}
+.srow.desliza .scene{position:relative;z-index:1;transition:transform .2s ease;will-change:transform}
+.sfondo{position:absolute;top:0;right:0;bottom:0;display:flex;visibility:hidden}
+.srow.moviendo .sfondo,.srow.abierta .sfondo{visibility:visible}
+.sfondo .sbtn{min-width:96px;border:0;border-radius:0 14px 14px 0;color:#fff}
+.sfondo .sa-borrar{background:#b4443a}
+.sfondo .sa-ocultar{background:#5B7C87}
 .debug{position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top) + 56px);max-height:55%;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;z-index:5}
 .debug pre{margin:0;padding:10px;font:.7rem/1.4 var(--mono);white-space:pre-wrap}
 /* iconos y marca */

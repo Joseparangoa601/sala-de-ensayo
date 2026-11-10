@@ -1204,7 +1204,44 @@ function allScenes() { return [...store.get("myScenes", []), ...store.get("custo
 // Las de fábrica son iguales para todos: no se borran, se ocultan en este equipo y se pueden volver a mostrar.
 const ocultas = () => new Set(store.get("escenasOcultas", []));
 function visibleScenes() { const o = ocultas(); return allScenes().filter((s) => !o.has(s.id)); }
-let verOcultas = false;
+// Conversar: la lista va limpia. Borrar/ocultar se hace en «Editar» (todos) o deslizando la tarjeta (pantallas táctiles).
+let editando = false;
+const tactil = matchMedia("(pointer: coarse)").matches;
+const ETQ = { borrar: "Borrar", ocultar: "Ocultar", mostrar: "Mostrar" };
+function cerrarDeslizadas(salvo) {
+  for (const r of document.querySelectorAll("#scenes .srow.abierta")) if (r !== salvo) { r.classList.remove("abierta"); r.querySelector(".scene").style.transform = ""; }
+}
+document.addEventListener("touchstart", (e) => { if (!e.target.closest?.(".srow.abierta")) cerrarDeslizadas(); }, { passive: true });
+// Solo un gesto claramente horizontal mueve la tarjeta; uno vertical deja desplazar la lista (touch-action: pan-y)
+function deslizable(row) {
+  const c = row.querySelector(".scene"), fondo = row.querySelector(".sfondo");
+  let x0 = 0, y0 = 0, dx = 0, base = 0, modo = null;
+  const fin = () => {
+    row.classList.remove("moviendo"); c.style.transition = "";
+    if (modo !== "h") return;
+    const abrir = dx < -fondo.offsetWidth / 2;
+    row.classList.toggle("abierta", abrir);
+    c.style.transform = abrir ? `translateX(${-fondo.offsetWidth}px)` : "";
+    row.dataset.recien = "1"; setTimeout(() => delete row.dataset.recien, 350);   // el toque que suelta no inicia la escena
+  };
+  row.addEventListener("touchstart", (e) => {
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; modo = null;
+    base = row.classList.contains("abierta") ? -fondo.offsetWidth : 0;
+  }, { passive: true });
+  row.addEventListener("touchmove", (e) => {
+    const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+    if (!modo) {
+      if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+      modo = Math.abs(mx) > Math.abs(my) * 1.5 ? "h" : "v";
+      if (modo === "h") { cerrarDeslizadas(row); row.classList.add("moviendo"); c.style.transition = "none"; }
+    }
+    if (modo !== "h") return;
+    dx = Math.min(0, Math.max(-fondo.offsetWidth - 24, base + mx));
+    c.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  row.addEventListener("touchend", fin);
+  row.addEventListener("touchcancel", fin);
+}
 function renderHome() {
   const card = (s) => `
     <button class="scene" data-id="${esc(s.id)}">
@@ -1213,33 +1250,37 @@ function renderHome() {
       <span class="who">${esc([s.name, s.who].filter(Boolean).join(" · "))}</span>
       <span class="d">${esc(s.desc)}</span></span>
     </button>`;
-  // En Conversar cada tarjeta lleva su acción aparte: tocar la tarjeta sigue siendo empezar a conversar
   const propias = new Set(store.get("myScenes", []).map((s) => s.id)), fabrica = new Set(window.SCENES.map((s) => s.id)), o = ocultas();
-  const nOcultas = allScenes().filter((s) => o.has(s.id)).length;
-  if (!nOcultas) verOcultas = false;
+  const accionDe = (s) => (propias.has(s.id) ? "borrar" : !fabrica.has(s.id) ? null : o.has(s.id) ? "mostrar" : "ocultar");
+  const boton = (a, s) => `<button class="sbtn sa-${a}" data-a="${a}" aria-label="${ETQ[a]} la escena ${esc(s.title)}">${ETQ[a]}</button>`;
   const fila = (s) => {
-    const oculta = o.has(s.id);
-    const accion = propias.has(s.id) ? `<button class="lpen sbin" data-a="borrar" aria-label="Borrar la escena ${esc(s.title)}" title="Borrar la escena">${IC.trash}</button>`
-      : !fabrica.has(s.id) ? ""
-      : oculta ? `<button class="ghost smostrar" data-a="mostrar" aria-label="Volver a mostrar ${esc(s.title)}">Mostrar</button>`
-      : `<button class="lpen" data-a="ocultar" aria-label="Ocultar la escena ${esc(s.title)}" title="Ocultar la escena">${IC.hide}</button>`;
-    return `<div class="srow${oculta ? " oculta" : ""}" data-id="${esc(s.id)}">${card(s)}${accion}</div>`;
+    const a = accionDe(s);
+    if (editando) return `<div class="srow editar${o.has(s.id) ? " oculta" : ""}" data-id="${esc(s.id)}">${card(s)}${a ? boton(a, s) : ""}</div>`;
+    const desliza = tactil && a;
+    return `<div class="srow${desliza ? " desliza" : ""}" data-id="${esc(s.id)}">${desliza ? `<div class="sfondo">${boton(a, s)}</div>` : ""}${card(s)}</div>`;
   };
-  const lista = verOcultas ? allScenes() : visibleScenes();
-  $("#scenes").innerHTML = (lista.length ? lista.map(fila).join("") : `<p class="muted small">No tienes escenas a la vista. Crea una con «+ Crea tu escena».</p>`)
-    + (nOcultas ? `<button class="linklike" id="verOcultas">${verOcultas ? "Esconder las ocultas" : `Mostrar ocultas (${nOcultas})`}</button>` : "");
-  $("#verOcultas") && ($("#verOcultas").onclick = () => { verOcultas = !verOcultas; renderHome(); });
+  const visibles = visibleScenes(), lista = editando ? [...visibles, ...allScenes().filter((s) => o.has(s.id))] : visibles;
+  $("#scenes").classList.toggle("editando", editando);
+  $("#scenes").innerHTML = (editando ? `<p class="muted small shint">Borra tus escenas u oculta las que trae la app. Las ocultas quedan al final.</p>` : "")
+    + (lista.length ? lista.map(fila).join("") : `<p class="muted small">${o.size ? "Ocultaste todas las escenas. Toca «Editar» para volver a mostrarlas." : "No tienes escenas. Crea una con «+ Crea tu escena»."}</p>`);
+  const ed = $("#editScenes");
+  ed.textContent = editando ? "Listo" : "Editar"; ed.className = "linkbtn" + (editando ? " on" : "");
+  ed.setAttribute("aria-pressed", String(editando));
   for (const b of $("#scenes").querySelectorAll("[data-a]")) b.onclick = () => {
     const row = b.closest(".srow"), id = row.dataset.id, s = allScenes().find((x) => x.id === id);
-    if (b.dataset.a === "ocultar") {
-      store.set("escenasOcultas", [...ocultas(), id]); renderHome();   // aparece «Mostrar ocultas (N)» para recuperarla
-    } else if (b.dataset.a === "mostrar") {
-      store.set("escenasOcultas", [...ocultas()].filter((x) => x !== id)); renderHome();
-    } else confirmarBorrarEscena(row, s);
+    if (b.dataset.a === "ocultar") { store.set("escenasOcultas", [...ocultas(), id]); renderHome(); }
+    else if (b.dataset.a === "mostrar") { store.set("escenasOcultas", [...ocultas()].filter((x) => x !== id)); renderHome(); }
+    else confirmarBorrarEscena(row, s);
   };
+  for (const r of $("#scenes").querySelectorAll(".srow.desliza")) deslizable(r);
   const dayId = sceneOfDay()?.id;
   $("#hoyScenes").innerHTML = visibleScenes().filter((s) => s.id !== dayId).slice(0, 3).map(card).join("");
-  for (const b of document.querySelectorAll(".scene[data-id]")) b.onclick = () => startScene(allScenes().find((s) => s.id === b.dataset.id));
+  for (const b of document.querySelectorAll(".scene[data-id]")) b.onclick = () => {
+    const row = b.closest("#scenes .srow");
+    if (row && (editando || row.dataset.recien)) return;                         // editando, o recién soltaste un deslizamiento
+    if (row?.classList.contains("abierta")) { cerrarDeslizadas(); return; }     // con la acción a la vista, tocar la cierra
+    startScene(allScenes().find((s) => s.id === b.dataset.id));
+  };
   $("#levelSel").value = S.level;
   const t = store.get("lastTest", null);
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
@@ -1257,7 +1298,7 @@ function renderHome() {
 }
 // Borrar una escena propia la quita del perfil (todos tus equipos). Lo que ya practicaste con ella se queda.
 function confirmarBorrarEscena(row, s) {
-  row.classList.add("editing");
+  row.className = "srow editing";
   row.innerHTML = `<p class="small" style="margin:0">¿Borrar <b>${esc(s.title)}</b>? No se puede deshacer. Tus conversaciones y las frases de tu cuaderno se quedan.</p>
     <div class="lname-btns"><button class="ldanger" data-b="si">Sí, borrar</button><button class="ghost" data-b="no">Cancelar</button></div>
     <p class="small lname-err" role="alert"></p>`;
@@ -1358,11 +1399,14 @@ function renderVoicePicker() {
 }
 
 function wire() {
+  $("#editScenes").onclick = () => { editando = !editando; renderHome(); };
   $("#allScenes").onclick = () => document.querySelector('.tabbar [data-tab="conversar"]').click();
   for (const b of document.querySelectorAll(".tabbar button")) b.onclick = () => {
     for (const x of document.querySelectorAll(".tabbar button")) { if (x === b) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current"); }
     for (const t of document.querySelectorAll(".tabpanel")) t.hidden = t.dataset.tab !== b.dataset.tab;
     $("#homeBody").scrollTop = 0;
+    if (editando) { editando = false; renderHome(); }   // al cambiar de pestaña se sale de Editar
+    cerrarDeslizadas();
   };
   $("#forgotBtn").onclick = async () => {
     const email = $("#email").value.trim().toLowerCase(), err = $("#loginErr");
