@@ -89,6 +89,39 @@ function addBubble(role, text) {
   scrollLog();
   return el;
 }
+// El personaje habla en inglés; el español solo aparece si lo pides. En el simulacro no hay ayudas, como en una entrevista real.
+function addTraducir(el, texto) {
+  if (!texto || S.scene?.prep || el.querySelector(".trad")) return;
+  const escena = S.scene.title, VER = "Ver en español", OCULTAR = "Ocultar español";
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "replay trad"; b.textContent = VER; b.setAttribute("aria-expanded", "false");
+  let caja = null, ocupado = false;
+  const mostrar = () => { if (el === $("#log").lastElementChild) scrollLog(); else caja.scrollIntoView({ block: "nearest" }); };
+  b.onclick = async () => {
+    if (ocupado) return;
+    if (caja) {
+      caja.hidden = !caja.hidden;
+      b.textContent = caja.hidden ? VER : OCULTAR; b.setAttribute("aria-expanded", String(!caja.hidden));
+      if (!caja.hidden) mostrar();
+      return;
+    }
+    ocupado = true; b.textContent = "Traduciendo…";
+    try {
+      const r = await fnFetch("generar", { modo: "traducir", texto, escena });
+      const j = await r.json();
+      if (!r.ok || !j.es) throw j;
+      S.usage.haikuIn += j.usage?.input_tokens || 0; S.usage.haikuOut += j.usage?.output_tokens || 0;
+      caja = document.createElement("p"); caja.className = "trad-es"; caja.lang = "es"; caja.textContent = j.es;
+      b.after(caja);
+      b.textContent = OCULTAR; b.setAttribute("aria-expanded", "true");
+      mostrar();
+    } catch (e) {
+      b.textContent = e?.error === "rate_limited" ? "Espera un momento y toca de nuevo" : "No se pudo traducir. Toca para reintentar";
+    }
+    ocupado = false;
+  };
+  el.querySelector(".bubble").after(b);
+}
 function scrollLog() { requestAnimationFrame(() => { const m = $("#logWrap"); m.scrollTop = m.scrollHeight; }); }
 // Compara por palabras (sin mayúsculas ni puntuación) y marca solo lo que cambió.
 const normWord = (w) => w.toLowerCase().replace(/[’]/g, "'").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
@@ -654,7 +687,7 @@ async function characterTurn(gen) {
     if (force && pending.trim()) { speakSentence(pending.trim(), gen); sentences++; pending = ""; }
   };
   try {
-    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.level }, ctl.signal);
+    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.scene.nivel || S.level }, ctl.signal);   // una lección puede elegir su propio nivel
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw { code: j.error || "chat", status: j.status || r.status, motivo: j.motivo }; }
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
     while (true) {
@@ -683,6 +716,7 @@ async function characterTurn(gen) {
     flush(true);
     full = full.trim();
     if (full) S.history.push({ role: "assistant", content: full });
+    if (full && bubble) addTraducir(bubble, full);
     if (S.sesion && full) S.sesion.palabras_pers += countWords(full);
     scrollLog();
     player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
@@ -813,7 +847,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
   const evaluate = async () => {
     ev = { loading: true }; paint();
     try {
-      const r = await fnFetch("generar", { modo: "evaluar_escena", escena: scene.title, sesion: ses.id, desc: scene.desc || "", personaje: `${scene.name}, ${scene.who || ""}`, level: S.level, turnos: hist });
+      const r = await fnFetch("generar", { modo: "evaluar_escena", escena: scene.title, sesion: ses.id, desc: scene.desc || "", personaje: `${scene.name}, ${scene.who || ""}`, level: scene.nivel || S.level, turnos: hist });
       if (!r.ok) throw new Error("evaluar " + r.status);
       const j = await r.json();
       ev = { v: j.evaluacion, prev: j.previo };
@@ -969,7 +1003,7 @@ function openScene() {
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
-  addBubble("assistant", S.scene.open);
+  addTraducir(addBubble("assistant", S.scene.open), S.scene.open);
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
 }
 const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";

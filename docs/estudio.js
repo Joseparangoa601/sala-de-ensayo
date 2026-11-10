@@ -436,7 +436,7 @@ async function videoHome(prefill) {
 async function renderLessonList() {
   let rows = localLessons();
   try {
-    const { data } = await Sala.sb().from("lecciones").select("id,titulo,auto:leccion->>titulo_es,video_id,nivel,creado,actualizado,progreso,tokens").order("creado", { ascending: false }).limit(40);
+    const { data } = await Sala.sb().from("lecciones").select("id,titulo,auto:leccion->>titulo_es,video_id,nivel,tramo_min,creado,actualizado,progreso,tokens").order("creado", { ascending: false }).limit(40);
     if (data) {
       const ids = new Set(data.map((d) => d.id));
       const onlyLocal = rows.filter((r) => !ids.has(r.id));
@@ -456,7 +456,7 @@ async function renderLessonList() {
     <div class="lrow" data-id="${esc(r.id)}">
       <button class="lesson lopen" data-id="${esc(r.id)}">${thumb(r)}
         <span class="ltxt"><b>${esc(r.titulo || "Lección")}</b>
-        <span class="meta">${esc(r.nivel)} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
+        <span class="meta">${esc(r.nivel)}${r.tramo_min ? ` · desde el min ${esc(r.tramo_min)}` : ""} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
       ${r.estado === "creando" ? "" : `<button class="lpen" aria-label="Cambiar el nombre de ${esc(r.titulo || "la lección")}" title="Cambiar el nombre">${IC.pen}</button><button class="lpen lbin" aria-label="Eliminar ${esc(r.titulo || "la lección")}" title="Eliminar la lección">${IC.trash}</button>`}
     </div>`).join("")
     : `<p class="muted small">Todavía no tienes lecciones.</p>`;
@@ -523,26 +523,37 @@ function renameLesson(el, r) {
 }
 function status(html) { const el = $("#vStatus"); if (el) el.innerHTML = html; }
 let urlBusy = -1;   // pantalla con una búsqueda en curso: un doble toque no gasta dos transcripciones
-async function fromUrl(url) {
+async function fromUrl(url, otraParte = false) {
   const g = screenGen;
   if (urlBusy === g) return;
   urlBusy = g;
-  try { await fetchTranscript(url, g); } finally { if (urlBusy === g) urlBusy = -1; }
+  try { await fetchTranscript(url, g, otraParte); } finally { if (urlBusy === g) urlBusy = -1; }
 }
-async function fetchTranscript(url, g) {
+async function fetchTranscript(url, g, otraParte = false) {
   const live = () => g === screenGen;
   const vid = videoIdFrom(url);
   if (!vid) { status(err("Ese enlace no parece de un video de YouTube.")); return; }
   waitRun++;   // empieza otro video: la espera anterior sigue en el servidor, pero ya no interrumpe este
   const lv = Sala.level();
-  const dup = localLessons().find((l) => l.video_id === vid && l.nivel === lv);
-  if (dup) { openLesson(dup.id); return; }
-  // ¿Ya existe en el servidor (creada desde otro equipo o en preparación)? Se abre sin gastar transcripción ni Opus
-  try {
-    const { data: prev } = await Sala.sb().from("lecciones").select("id,leccion->segmentos,tokens,creado,actualizado").eq("video_id", vid).eq("nivel", lv).maybeSingle();
-    if (!live()) return;
-    if (prev && (Array.isArray(prev.segmentos) && prev.segmentos.length || inProgress(prev))) { openLesson(prev.id); return; }
-  } catch {}
+  if (!otraParte) {
+    // ¿Ya existe (en este equipo, en otro o en preparación)? Se puede abrir sin gastar transcripción ni Opus
+    let ya = localLessons().find((l) => l.video_id === vid && l.nivel === lv)?.id || null;
+    if (!ya) try {
+      const { data } = await Sala.sb().from("lecciones").select("id,leccion->segmentos,tokens,creado,actualizado").eq("video_id", vid).eq("nivel", lv).order("creado", { ascending: true }).limit(1);
+      if (!live()) return;
+      const prev = data?.[0];
+      if (prev && inProgress(prev)) { openLesson(prev.id); return; }
+      if (prev && Array.isArray(prev.segmentos) && prev.segmentos.length) ya = prev.id;
+    } catch {}
+    if (ya) {
+      status(`<div class="rc-ctx"><b>Ya tienes una lección de este video en nivel ${esc(lv)}</b></div>
+        <button class="primary wide" id="vAbrir">Abrir la lección</button>
+        <button class="ghost wide" id="vOtraParte">Crear otra lección desde otro minuto</button>`);
+      on("vAbrir", () => openLesson(ya));
+      on("vOtraParte", () => fromUrl(url, true));
+      return;
+    }
+  }
   status(`<p class="muted">Buscando los subtítulos del video…</p><div class="spinner"></div>`);
   let j;
   try {
@@ -606,21 +617,39 @@ function fromPaste() {
   waitRun++;
   confirmGenerate({ videoId: timed ? vid : null, chunks, fuente: "pegada", title: $("#vTitle").value.trim(), timed });
 }
+// Tope del servidor por lección: 25 min o 5.000 palabras, contados desde donde empieza; de ahí Opus elige un tramo de unos 10 min
+function ventana(chunks, desdeSeg) {
+  const sel = chunks.filter((c) => c.t >= desdeSeg), base = sel.length ? sel[0].t : desdeSeg, out = [];
+  let acc = 0;
+  for (const c of sel) { const n = c.text.split(/\s+/).length; if (c.t - base > 1500 || acc + n > 5000) break; acc += n; out.push(c); }
+  const fin = out.length ? out[out.length - 1].t + out[out.length - 1].d : base;
+  return { chunks: out, ini: base, fin, palabras: acc };
+}
 function confirmGenerate(src, level) {
   const words = src.chunks.reduce((a, c) => a + c.text.split(/\s+/).length, 0);
   const last = src.chunks[src.chunks.length - 1];
   const dur = last ? last.t + last.d : 0;
   const lv = level || Sala.level();
-  // Tope del servidor: 25 min o 5.000 palabras; de ahí Opus elige un tramo de trabajo de unos 10 min
-  let cutAt = dur, acc = 0;
-  for (const c of src.chunks) { acc += c.text.split(/\s+/).length; if (c.t > 1500 || acc > 5000) { cutAt = c.t; break; } }
-  const long = cutAt < dur - 5;
+  const todo = ventana(src.chunks, 0), long = todo.fin < dur - 5, maxMin = last ? Math.floor(last.t / 60) : 0;
   status(`<div class="rc-ctx"><b>Transcripción lista</b>
       <span>${mmss(dur)} min · ${words} palabras${src.fuente === "pegada" && !src.videoId ? " · sin video: los audios los leerá la voz de la app" : ""}</span></div>
-    ${long ? `<div class="notice" data-kind="warn"><b>Video largo.</b> La lección usará solo los primeros ${mmss(cutAt)} min, y de ahí un tramo de trabajo de unos 10 min. Lo que viene después no entra. Si te interesa una parte posterior, pega solo esa parte de la transcripción.</div>` : ""}
+    ${long ? `<div class="stack"><label for="vDesde">Empezar desde el minuto</label><input id="vDesde" type="number" inputmode="numeric" min="0" max="${maxMin}" step="1" value="0"></div><div class="notice" data-kind="warn" id="vNota" role="status"></div>` : ""}
     <button class="primary wide" id="vGen">Crear lección para nivel ${lv}</button>
     <p class="muted small">Tarda cerca de 1 minuto. Te aviso con una notificación cuando esté lista.</p>`);
-  on("vGen", () => { askPush(); generate(src, lv); });
+  let elegida = todo;
+  if (long) {
+    const pintar = () => {
+      const m = Math.min(maxMin, Math.max(0, parseInt($("#vDesde").value, 10) || 0));
+      elegida = ventana(src.chunks, m * 60);
+      const poco = elegida.palabras < 40;
+      $("#vGen").disabled = poco;
+      $("#vNota").innerHTML = poco ? "Desde ese minuto queda muy poco texto. Elige un minuto anterior."
+        : `<b>Video largo.</b> Cada lección toma hasta 25 minutos. Esta usará del minuto ${mmss(elegida.ini)} al ${mmss(elegida.fin)}, y de ahí elegirá unos 10 minutos para estudiar. Para estudiar otra parte, crea otra lección desde ese minuto.`;
+    };
+    $("#vDesde").oninput = pintar;
+    pintar();
+  }
+  on("vGen", () => { askPush(); generate({ ...src, chunks: elegida.chunks }, lv); });
 }
 /* ---------- notificaciones push ---------- */
 // iOS solo permite pedir el permiso tocando un botón y con la app instalada en la pantalla de inicio.
@@ -861,6 +890,11 @@ function advanceTo(n) { if (n > (LS.row.progreso.paso || 1)) saveProgress({ paso
 const wireNext = (n) => on("stNext", () => advanceTo(n));
 const tramoText = () => LS.row.transcripcion.filter((c) => c.t + c.d > LS.L.tramo.inicio && c.t < LS.L.tramo.fin).map((c) => c.text).join(" ");
 function playTramo(rate = 1) { playRange(LS.L.tramo.inicio, LS.L.tramo.fin, { rate, text: tramoText() }); }
+// La parte del video que trabaja la lección, dicha siempre igual en todos los pasos
+function parteVideo() {
+  const { inicio, fin } = LS.L.tramo;
+  return { rango: `del minuto ${mmss(inicio)} al ${mmss(fin)}`, dura: mmss(fin - inicio), mira: LS.row.video_id ? "Mira" : "Escucha", ver: LS.row.video_id ? "Ver" : "Escuchar" };
+}
 
 function exprHTML(e, i) {
   const has = Datos.has(e.en);
@@ -878,7 +912,7 @@ function step1() {
   sb_(`
     <p>${esc(L.resumen_es)}</p>
     <div class="rc-ctx"><b>¿Es para tu nivel?</b><span>${esc(L.encaje_es)}</span></div>
-    <div class="rc-ctx"><b>Tramo de trabajo · ${mmss(L.tramo.inicio)} a ${mmss(L.tramo.fin)}</b><span>${esc(L.tramo.por_que_es)}</span></div>
+    <div class="rc-ctx"><b>La parte que vas a estudiar: ${parteVideo().rango} (dura ${parteVideo().dura})</b><span>${esc(L.tramo.por_que_es)}</span></div>
     <div class="rc-ctx"><b>Antes de ver, piensa</b><span>${esc(L.prediccion_es)}</span></div>
     <h3>Expresiones clave</h3>
     <div class="exprs">${(L.expresiones || []).map(exprHTML).join("")}</div>
@@ -916,11 +950,11 @@ function selfRate(key, label) {
 }
 function wireSelfRate() { for (const b of document.querySelectorAll("[data-pct]")) b.onclick = () => { saveProgress({ [b.dataset.k]: Number(b.dataset.pct) }); for (const x of document.querySelectorAll(`[data-k="${b.dataset.k}"]`)) x.classList.toggle("sug", x === b); }; }
 function step2() {
-  const g = LS.L.preguntas_gist || [];
+  const g = LS.L.preguntas_gist || [], pv = parteVideo();
   sb_(`
-    <p><b>Mira el tramo sin leer nada.</b> Busca solo la idea general; no te detengas en palabras sueltas.</p>
+    <p><b>${pv.mira} esta parte sin leer nada: ${pv.rango}.</b> Busca solo la idea general; no te detengas en palabras sueltas.</p>
     <ol class="ul">${g.map((q) => `<li><span>${esc(q.q_en)}</span><br><span class="small muted">${esc(q.q_es)}</span></li>`).join("")}</ol>
-    <button class="primary wide" id="pPlay">${IC.play}Ver el tramo (${mmss(LS.L.tramo.fin - LS.L.tramo.inicio)})</button>
+    <button class="primary wide" id="pPlay">${IC.play}${pv.ver} esta parte (${pv.dura})</button>
     <button class="ghost wide" id="pAns">Mostrar respuestas</button>
     <div id="ans" hidden>${g.map((q, i) => `<div class="rc-ctx"><b>Pregunta ${i + 1}</b><span>${esc(q.respuesta_es)}</span></div>`).join("")}</div>
     ${selfRate("comprension_inicial", "¿Cuánto entendiste en esta primera vez?")}
@@ -956,7 +990,7 @@ function step3() {
   const lines = sentenceLines(LS.row.transcripcion.filter((c) => c.t + c.d > LS.L.tramo.inicio && c.t < LS.L.tramo.fin));
   let lastCur = -1;
   sb_(`
-    <p><b>Ahora con el texto en inglés.</b> Toca una línea para oírla de nuevo.</p>
+    <p><b>La misma parte, ahora con el texto en inglés: ${parteVideo().rango}.</b> Toca una línea para oírla de nuevo.</p>
     <div class="rc-actions"><button class="primary big" id="cPlay">${IC.play}Ver con texto</button><button class="ghost" id="cSlow">${IC.play}0,75×</button></div>
     <div class="transcript" id="tr">${lines.map((c, i) => `<button class="tline" data-i="${i}" data-t="${c.t}"><span class="ts">${mmss(c.t)}</span> ${esc(c.text)}</button>`).join("")}</div>
     ${nextBtn(4)}`);
@@ -1073,10 +1107,11 @@ function shadow(s) {
   });
 }
 function step5() {
+  const pv = parteVideo();
   sb_(`
-    <p><b>Mira el tramo otra vez, sin texto.</b> Compara con la primera vez.</p>
+    <p><b>${pv.mira} otra vez la misma parte, sin texto: ${pv.rango}.</b> Compara con la primera vez.</p>
     <div class="rc-ctx"><b>Para pensar</b><span>${esc(LS.L.reflexion_es)}</span></div>
-    <button class="primary wide" id="fPlay">${IC.play}Ver el tramo</button>
+    <button class="primary wide" id="fPlay">${IC.play}${pv.ver} esta parte (${pv.dura})</button>
     ${selfRate("comprension_final", "¿Cuánto entendiste ahora?")}
     <div id="gain"></div>
     ${nextBtn(6)}`);
@@ -1089,18 +1124,40 @@ function step5() {
   for (const b of document.querySelectorAll("[data-k='comprension_final']")) { const f = b.onclick; b.onclick = () => { f(); showGain(); }; }
   wireNext(6);
 }
+const NIVELES_HABLA = ["A1", "A2", "B1", "B2", "C1"];
+const nivelHabla = (n) => (n === "C2" ? "C1" : NIVELES_HABLA.includes(n) ? n : null);
 function step6() {
   const p = LS.L.personaje || {};
   const exprs = (LS.L.expresiones || []).map((e) => e.en);
+  const mine = LS, guardado = nivelHabla(LS.row.progreso.nivel_habla);
+  let test = nivelHabla(store().get("lastTest", null)?.nivel), elegido = guardado || test || "B2", tocado = !!guardado;
   sb_(`
+    <div class="stack"><p class="rc-q small" style="margin:0">¿En qué nivel quieres practicar?</p>
+      <div class="rates five" role="group" aria-label="Nivel de la conversación">${NIVELES_HABLA.map((n) => `<button class="rate" data-nv="${n}"><span>${n}</span></button>`).join("")}</div>
+      <p class="muted small" id="nvNota" style="margin:0"></p></div>
     <p><b>Úsalo hablando.</b> ${esc(p.nombre || "Un personaje")}${p.who_es ? ` (${esc(String(p.who_es).replace(/\.+$/, ""))})` : ""} quiere conversar contigo sobre el tema del video. Intenta usar estas expresiones:</p>
     <div class="chips">${exprs.map((x) => `<span class="chip static">${esc(x)}</span>`).join("")}</div>
     <button class="primary wide" id="talkGo">${IC.mic}Conversar con ${esc(p.nombre || "el personaje")}</button>
     <p class="muted small">Las correcciones de esta conversación van a tu cuaderno, igual que en las demás escenas.</p>`);
+  const pintarNivel = () => {
+    for (const b of document.querySelectorAll("[data-nv]")) { const on_ = b.dataset.nv === elegido; b.classList.toggle("sug", on_); b.setAttribute("aria-pressed", String(on_)); }
+    const nota = $("#nvNota");
+    if (nota) nota.textContent = `${test ? `Por defecto es el nivel de tu test (${test}).` : "Aún no tienes test, así que por defecto es B2."} Cambia cómo te habla el personaje; las expresiones de la lección son las mismas.`;
+  };
+  for (const b of document.querySelectorAll("[data-nv]")) b.onclick = () => { elegido = b.dataset.nv; tocado = true; saveProgress({ nivel_habla: elegido }); pintarNivel(); };
+  pintarNivel();
+  // En un equipo nuevo el resultado del test solo está en el servidor
+  if (!test) Sala.sb().from("test_intentos").select("nivel").not("fin", "is", null).order("fin", { ascending: false }).limit(1).maybeSingle().then(({ data }) => {
+    const n = nivelHabla(data?.nivel);
+    if (!n || LS !== mine) return;
+    test = n;
+    if (!tocado) elegido = n;
+    pintarNivel();
+  }, () => {});
   on("talkGo", () => {
     stopVideo();
     Sala.startScene({
-      id: "lec-" + LS.row.id, title: LS.row.titulo, name: p.nombre || "Partner", who: p.who_es || "", desc: "",
+      id: "lec-" + LS.row.id, title: LS.row.titulo, name: p.nombre || "Partner", who: p.who_es || "", desc: "", nivel: elegido,
       persona: `${p.persona_en || ""}\nThe learner just studied a video lesson on this topic. Create natural chances for them to use these expressions (never list them, never quiz): ${exprs.join("; ")}.`,
       open: p.open_en || "So, what did you think of the video?", voice: p.voz || "en-US-AvaMultilingualNeural",
       returnTo: { kind: "lesson", id: LS.row.id },
