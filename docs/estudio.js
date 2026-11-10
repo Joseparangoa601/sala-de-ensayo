@@ -452,19 +452,35 @@ async function renderLessonList() {
   const thumb = (r) => r.video_id
     ? `<img class="lthumb" src="https://i.ytimg.com/vi/${esc(r.video_id)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;lthumb none&quot;></span>'">`
     : `<span class="lthumb none"></span>`;
+  // En celular: deslizar la lección a la izquierda muestra Editar y Borrar (la fila conserva todo su ancho).
+  // En computador no hay deslizar: quedan los íconos al lado, que ahí sí tienen espacio.
+  const tactil = Sala.tactil;
+  const nombre = (r) => esc(r.titulo || "la lección");
+  const acciones = (r) => r.estado === "creando" ? ""
+    : tactil ? `<div class="sfondo"><button class="sbtn sa-editar" data-a="editar" aria-label="Cambiar el nombre de ${nombre(r)}">Editar</button><button class="sbtn sa-borrar" data-a="borrar" aria-label="Eliminar ${nombre(r)}">Borrar</button></div>`
+    : `<button class="lpen" aria-label="Cambiar el nombre de ${nombre(r)}" title="Cambiar el nombre">${IC.pen}</button><button class="lpen lbin" aria-label="Eliminar ${nombre(r)}" title="Eliminar la lección">${IC.trash}</button>`;
   el.innerHTML = rows.length ? rows.map((r) => `
-    <div class="lrow" data-id="${esc(r.id)}">
-      <button class="lesson lopen" data-id="${esc(r.id)}">${thumb(r)}
+    <div class="lrow${tactil && r.estado !== "creando" ? " desliza" : ""}" data-id="${esc(r.id)}">
+      ${tactil ? acciones(r) : ""}<button class="lesson lopen" data-id="${esc(r.id)}">${thumb(r)}
         <span class="ltxt"><b>${esc(r.titulo || "Lección")}</b>
         <span class="meta">${esc(r.nivel)}${r.tramo_min ? ` · desde el min ${esc(r.tramo_min)}` : ""} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
-      ${r.estado === "creando" ? "" : `<button class="lpen" aria-label="Cambiar el nombre de ${esc(r.titulo || "la lección")}" title="Cambiar el nombre">${IC.pen}</button><button class="lpen lbin" aria-label="Eliminar ${esc(r.titulo || "la lección")}" title="Eliminar la lección">${IC.trash}</button>`}
+      ${tactil ? "" : acciones(r)}
     </div>`).join("")
+    + (tactil && rows.some((r) => r.estado !== "creando") && !store().get("pistaDeslizar", false) ? `<p class="muted small lpista">Desliza una lección a la izquierda para cambiarle el nombre o borrarla.</p>` : "")
     : `<p class="muted small">Todavía no tienes lecciones.</p>`;
-  for (const b of el.querySelectorAll(".lesson")) b.onclick = () => openLesson(b.dataset.id);
-  for (const b of el.querySelectorAll(".lpen")) b.onclick = () => {
-    const row = b.closest(".lrow"), r = rows.find((x) => x.id === row.dataset.id);
-    (b.classList.contains("lbin") ? confirmDelete : renameLesson)(row, r);
+  for (const b of el.querySelectorAll(".lesson")) b.onclick = () => {
+    const row = b.closest(".lrow");
+    if (row.dataset.recien) return;                                                  // recién soltaste un deslizamiento
+    if (row.classList.contains("abierta")) { Sala.cerrarDeslizadas(); return; }       // con las acciones a la vista, tocar las cierra
+    openLesson(b.dataset.id);
   };
+  for (const b of el.querySelectorAll(".lpen, .sfondo [data-a]")) b.onclick = () => {
+    const row = b.closest(".lrow"), r = rows.find((x) => x.id === row.dataset.id);
+    row.className = "lrow";   // deja de ser deslizable mientras edita o confirma
+    (b.classList.contains("lbin") || b.dataset.a === "borrar" ? confirmDelete : renameLesson)(row, r);
+  };
+  // Usar el gesto una vez basta para aprenderlo: la pista ya no vuelve
+  for (const row of el.querySelectorAll(".lrow.desliza")) Sala.deslizable(row, ".lopen", () => { store().set("pistaDeslizar", true); el.querySelector(".lpista")?.remove(); });
 }
 // Borrar una lección borra todo lo creado desde ella (la base lo hace en cascada). Antes dice exactamente qué se va.
 async function confirmDelete(el, r) {

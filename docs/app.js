@@ -1223,13 +1223,15 @@ function visibleScenes() { const o = ocultas(); return allScenes().filter((s) =>
 let editando = false;
 const tactil = matchMedia("(pointer: coarse)").matches;
 const ETQ = { borrar: "Borrar", ocultar: "Ocultar", mostrar: "Mostrar" };
+// Deslizar (escenas en Conversar y Tus lecciones): la fila .desliza tiene detrás .sfondo con las acciones y delante el contenido.
 function cerrarDeslizadas(salvo) {
-  for (const r of document.querySelectorAll("#scenes .srow.abierta")) if (r !== salvo) { r.classList.remove("abierta"); r.querySelector(".scene").style.transform = ""; }
+  for (const r of document.querySelectorAll(".desliza.abierta")) if (r !== salvo) { r.classList.remove("abierta"); if (r._dz) r._dz.style.transform = ""; }
 }
-document.addEventListener("touchstart", (e) => { if (!e.target.closest?.(".srow.abierta")) cerrarDeslizadas(); }, { passive: true });
+document.addEventListener("touchstart", (e) => { if (!e.target.closest?.(".desliza.abierta")) cerrarDeslizadas(); }, { passive: true });
 // Solo un gesto claramente horizontal mueve la tarjeta; uno vertical deja desplazar la lista (touch-action: pan-y)
-function deslizable(row) {
-  const c = row.querySelector(".scene"), fondo = row.querySelector(".sfondo");
+function deslizable(row, frente = ".scene", alAbrir) {
+  const c = row.querySelector(frente), fondo = row.querySelector(".sfondo");
+  row._dz = c;
   let x0 = 0, y0 = 0, dx = 0, base = 0, modo = null;
   const fin = () => {
     row.classList.remove("moviendo"); c.style.transition = "";
@@ -1237,6 +1239,7 @@ function deslizable(row) {
     const abrir = dx < -fondo.offsetWidth / 2;
     row.classList.toggle("abierta", abrir);
     c.style.transform = abrir ? `translateX(${-fondo.offsetWidth}px)` : "";
+    if (abrir) alAbrir?.();
     row.dataset.recien = "1"; setTimeout(() => delete row.dataset.recien, 350);   // el toque que suelta no inicia la escena
   };
   row.addEventListener("touchstart", (e) => {
@@ -1529,7 +1532,7 @@ function wire() {
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
     // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente"]) localStorage.removeItem("sala:" + k);
+    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente", "pistaDeslizar"]) localStorage.removeItem("sala:" + k);
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
@@ -1597,7 +1600,7 @@ function speakEN(text, opts = {}) {
 }
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
-  ojoClave, limiteMsg,
+  ojoClave, limiteMsg, deslizable, cerrarDeslizadas, tactil,
   // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente
   olvidarEscena(id, titulos) {
     delete S.voices[id]; store.set("voices", S.voices);
