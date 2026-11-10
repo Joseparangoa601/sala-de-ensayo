@@ -141,9 +141,9 @@ function scoresHTML(r) {
   const k = [["exactitud", "Exactitud"], ["fluidez", "Fluidez"], ["prosodia", "Entonación"], ["completitud", "Completitud"]].filter(([x]) => r[x] != null);
   return `<div class="scores">${k.map(([x, l]) => `<div><b>${r[x]}</b><small>${l}</small></div>`).join("")}</div>`;
 }
-function savePron(origen, referencia, r) {
+function savePron(origen, referencia, r, leccion_id = null) {
   if (!r.text) return;
-  Datos.put("pronunciacion", { id: Datos.uuid(), origen, referencia, dicho: r.text, exactitud: r.exactitud, fluidez: r.fluidez, prosodia: r.prosodia, completitud: r.completitud, total: r.total, palabras: r.palabras.slice(0, 120), creado: new Date().toISOString() });
+  Datos.put("pronunciacion", { id: Datos.uuid(), origen, referencia, leccion_id, dicho: r.text, exactitud: r.exactitud, fluidez: r.fluidez, prosodia: r.prosodia, completitud: r.completitud, total: r.total, palabras: r.palabras.slice(0, 120), creado: new Date().toISOString() });
 }
 
 /* =====================================================================
@@ -398,6 +398,7 @@ async function loadLesson(id) {
   if (local && lessonReady(local)) {
     // Abre sin esperar a una red lenta: 2,5 s como máximo para traer el avance de otro equipo
     const res = await Promise.race([Sala.sb().from("lecciones").select("progreso").eq("id", id).maybeSingle(), sleep(2500).then(() => null)]).catch(() => null);
+    if (res && !res.error && res.data === null) { forgetLesson(id); return null; }   // se eliminó desde otro equipo
     if (res?.data?.progreso) { local.progreso = mergeProgress(local.progreso || {}, res.data.progreso); cacheLesson(local); }
     return local;
   }
@@ -456,11 +457,43 @@ async function renderLessonList() {
       <button class="lesson lopen" data-id="${esc(r.id)}">${thumb(r)}
         <span class="ltxt"><b>${esc(r.titulo || "Lección")}</b>
         <span class="meta">${esc(r.nivel)} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
-      ${r.estado === "creando" ? "" : `<button class="lpen" aria-label="Cambiar el nombre de ${esc(r.titulo || "la lección")}" title="Cambiar el nombre">${IC.pen}</button>`}
+      ${r.estado === "creando" ? "" : `<button class="lpen" aria-label="Cambiar el nombre de ${esc(r.titulo || "la lección")}" title="Cambiar el nombre">${IC.pen}</button><button class="lpen lbin" aria-label="Eliminar ${esc(r.titulo || "la lección")}" title="Eliminar la lección">${IC.trash}</button>`}
     </div>`).join("")
     : `<p class="muted small">Todavía no tienes lecciones.</p>`;
   for (const b of el.querySelectorAll(".lesson")) b.onclick = () => openLesson(b.dataset.id);
-  for (const b of el.querySelectorAll(".lpen")) b.onclick = () => { const row = b.closest(".lrow"); renameLesson(row, rows.find((r) => r.id === row.dataset.id)); };
+  for (const b of el.querySelectorAll(".lpen")) b.onclick = () => {
+    const row = b.closest(".lrow"), r = rows.find((x) => x.id === row.dataset.id);
+    (b.classList.contains("lbin") ? confirmDelete : renameLesson)(row, r);
+  };
+}
+// Borrar una lección borra todo lo creado desde ella (la base lo hace en cascada). Antes dice exactamente qué se va.
+async function confirmDelete(el, r) {
+  el.classList.add("editing");
+  el.innerHTML = `<p class="small ldel-txt" style="margin:0">Revisando qué se va a borrar…</p>
+    <div class="lname-btns"><button class="ldanger" data-a="yes" disabled>Sí, eliminar todo</button><button class="ghost" data-a="no">Cancelar</button></div>
+    <p class="small lname-err" role="alert"></p>`;
+  el.querySelector('[data-a="no"]').onclick = () => renderLessonList();
+  const cuenta = (t) => Sala.sb().from(t).select("id", { count: "exact", head: true }).eq("leccion_id", r.id).then((x) => (x.error ? null : x.count)).catch(() => null);
+  const [frases, charlas, pron] = await Promise.all(["tarjetas", "sesiones", "pronunciacion"].map(cuenta));
+  if (!el.isConnected) return;
+  const n = (c, uno, varios) => (c ? [`${c} ${c === 1 ? uno : varios}`] : []);
+  const extras = frases == null || charlas == null || pron == null
+    ? ["sus frases del cuaderno", "sus conversaciones", "sus prácticas de pronunciación"]
+    : [...n(frases, "frase del cuaderno con sus repasos", "frases del cuaderno con sus repasos"), ...n(charlas, "conversación", "conversaciones"), ...n(pron, "práctica de pronunciación", "prácticas de pronunciación")];
+  el.querySelector(".ldel-txt").innerHTML = `Se borrará <b>${esc(r.titulo || "esta lección")}</b>: su transcripción, tu avance${extras.length ? `, ${esc(extras.join(", "))}` : ""}. No se puede deshacer. Tus horas de voz no cambian.`;
+  const yes = el.querySelector('[data-a="yes"]');
+  yes.disabled = false;
+  yes.onclick = async () => {
+    yes.disabled = true;
+    let ok = false;
+    try { const { data, error } = await Sala.sb().from("lecciones").delete().eq("id", r.id).select("id"); ok = !error && data?.length > 0; } catch {}
+    if (!ok) { yes.disabled = false; el.querySelector(".lname-err").textContent = "No se pudo eliminar. Revisa tu conexión e intenta de nuevo."; return; }
+    forgetLesson(r.id);
+    Datos.forgetLesson(r.id);
+    Sala.olvidarEscena("lec-" + r.id, [r.titulo, r.auto].filter(Boolean));
+    Datos.sync();
+    renderLessonList();
+  };
 }
 function forgetLesson(id) {
   try { localStorage.removeItem("sala:lesson:" + id); } catch {}
@@ -471,24 +504,8 @@ function renameLesson(el, r) {
   el.classList.add("editing");
   el.innerHTML = `<input class="lname" maxlength="120" value="${esc(r.titulo || "")}" placeholder="${esc(r.auto || "Nombre de la lección")}" aria-label="Nombre de la lección">
     <div class="lname-btns"><button class="primary" data-a="save">Guardar</button><button class="ghost" data-a="cancel">Cancelar</button></div>
-    <p class="muted small">Si lo dejas vacío, vuelve el título original.</p><p class="small lname-err" role="alert"></p>
-    <div class="ldel"><button class="linklike" data-a="del">Eliminar lección</button></div>`;
+    <p class="muted small">Si lo dejas vacío, vuelve el título original.</p><p class="small lname-err" role="alert"></p>`;
   const input = el.querySelector("input"), save = el.querySelector('[data-a="save"]');
-  const delBox = el.querySelector(".ldel");
-  el.querySelector('[data-a="del"]').onclick = () => {
-    delBox.innerHTML = `<p class="small" style="margin:0">¿Eliminar esta lección? Se pierde su avance y no se puede deshacer. Las frases que ya están en tu cuaderno se conservan.</p>
-      <div class="lname-btns"><button class="ldanger" data-a="yes">Sí, eliminar</button><button class="ghost" data-a="no">No</button></div>`;
-    delBox.querySelector('[data-a="no"]').onclick = () => renameLesson(el, r);
-    const yes = delBox.querySelector('[data-a="yes"]');
-    yes.onclick = async () => {
-      yes.disabled = true;
-      let ok = false;
-      try { const { data, error } = await Sala.sb().from("lecciones").delete().eq("id", r.id).select("id"); ok = !error && data?.length > 0; } catch {}
-      if (!ok) { yes.disabled = false; el.querySelector(".lname-err").textContent = "No se pudo eliminar. Revisa tu conexión e intenta de nuevo."; return; }
-      forgetLesson(r.id);
-      renderLessonList();
-    };
-  };
   input.focus(); input.select();
   el.querySelector('[data-a="cancel"]').onclick = () => renderLessonList();
   const submit = async () => {
@@ -852,7 +869,7 @@ function exprHTML(e, i) {
     <button class="mini add" data-i="${i}" ${has ? "disabled" : ""}>${has ? "✓ En tu cuaderno" : "+ Cuaderno"}</button></div>`;
 }
 function addExpr(e) {
-  Datos.addCard({ origen: "video", escena: LS.row.titulo, correcta: e.en, nativo: null, tip: [e.es, e.uso_es].filter(Boolean).join(" · "), contexto: e.ejemplo_en || null });
+  Datos.addCard({ origen: "video", escena: LS.row.titulo, correcta: e.en, nativo: null, tip: [e.es, e.uso_es].filter(Boolean).join(" · "), contexto: e.ejemplo_en || null, leccion_id: LS.row.id });
 }
 function wireSay(root = document) { for (const b of root.querySelectorAll("[data-say]")) b.onclick = () => sayEN(b.dataset.say); }
 
@@ -972,7 +989,7 @@ function step4() {
   const done = new Set(LS.row.progreso.hechos || []);
   const d = s.dictado;
   let gapN = 0;
-  const dictHTML = d ? esc(d.texto).replace(/___/g, () => `<input class="gap" data-g="${gapN++}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Palabra ${gapN}">`) : "";
+  const dictHTML = d ? esc(d.texto).replace(/___/g, () => `<input class="gap" data-g="${gapN++}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Palabra ${gapN}">`) : "";
   sb_(`
     <div class="segnav"><button class="mini" id="sPrev" ${k ? "" : "disabled"}>‹</button>
       <span>Segmento ${k + 1} de ${segs.length}${done.has(k) ? " · ✓" : ""}</span>
@@ -1008,23 +1025,31 @@ function step4() {
   on("stNext", () => { markDone(k); advanceTo(5); });
   on("sReveal", () => { $("#sExp").hidden = false; $("#sReveal").hidden = true; markDone(k); });
   for (const b of document.querySelectorAll(".addx")) b.onclick = () => {
-    Datos.addCard({ origen: "video", escena: LS.row.titulo, correcta: b.dataset.x, tip: null, contexto: s.texto });
+    Datos.addCard({ origen: "video", escena: LS.row.titulo, correcta: b.dataset.x, tip: null, contexto: s.texto, leccion_id: LS.row.id });
     b.disabled = true; b.textContent = "✓ " + b.dataset.x;
   };
   on("sCheck", () => {
-    const norm = (x) => String(x).toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9']/g, "");   // el teclado del iPhone escribe ’
-    let ok = 0;
-    for (const inp of document.querySelectorAll(".gap")) {
-      const want = d.respuestas[Number(inp.dataset.g)] || "";
-      const good = norm(inp.value) === norm(want);
-      if (good) ok++;
-      inp.classList.toggle("right", good); inp.classList.toggle("wrong", !good);
-      if (!good) inp.value = want;
-      inp.readOnly = true;
+    const inps = [...document.querySelectorAll(".gap")], escrito = inps.map((i) => i.value.trim());
+    if (!escrito.some(Boolean)) { $("#dRes").innerHTML = `<span class="small">Escribe primero lo que oíste.</span>`; return; }
+    const norm = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, "");   // se evalúa lo que oíste: comas, mayúsculas y apóstrofos no cuentan
+    // Huecos seguidos («___ ___»): escribir las dos palabras en una sola casilla también es acertar
+    const partes = d.texto.split("___"), grupos = [];
+    inps.forEach((_, i) => { if (i > 0 && !partes[i].trim()) grupos[grupos.length - 1].push(i); else grupos.push([i]); });
+    const bien = inps.map(() => false);
+    for (const g of grupos) {
+      const juntas = norm(g.map((i) => escrito[i]).join("")) === norm(g.map((i) => d.respuestas[i] || "").join(""));
+      for (const i of g) bien[i] = juntas || norm(escrito[i]) === norm(d.respuestas[i] || "");
     }
+    inps.forEach((inp, i) => {
+      inp.classList.toggle("right", bien[i]); inp.classList.toggle("wrong", !bien[i]);
+      inp.value = bien[i] && escrito[i] && norm(escrito[i]) === norm(d.respuestas[i] || "") ? escrito[i] : d.respuestas[i] || "";
+      inp.readOnly = true;
+    });
+    const ok = bien.filter(Boolean).length;
+    const fallos = inps.map((_, i) => (bien[i] ? "" : `<li>${escrito[i] ? `Escribiste «${esc(escrito[i])}»` : "Casilla en blanco"}: era <b>${esc(d.respuestas[i] || "")}</b></li>`)).join("");
     $("#sCheck").disabled = true;   // las respuestas ya quedaron escritas: comprobar otra vez daría todo correcto
-    $("#dRes").innerHTML =`<span class="${ok === d.respuestas.length ? "ok" : "small"}">${ok} de ${d.respuestas.length} correctas${ok < d.respuestas.length ? " · las que faltaban quedaron escritas" : ""}</span>`;
-    saveProgress({ dictado: { ...(LS.row.progreso.dictado || {}), [k]: { ok, de: d.respuestas.length } } });
+    $("#dRes").innerHTML = `<span class="${ok === d.respuestas.length ? "ok" : "small"}">${ok} de ${d.respuestas.length} correctas</span>${fallos ? `<ul class="ul small">${fallos}</ul>` : ""}`;
+    saveProgress({ dictado: { ...(LS.row.progreso.dictado || {}), [k]: { ok, de: d.respuestas.length, escrito } } });
   });
   on("shGo", () => shadow(s));
 }
@@ -1039,7 +1064,7 @@ function shadow(s) {
     if (!document.body.contains(btn)) return;
     btn.disabled = false; btn.innerHTML = `${IC.mic}Otra vez`;
     if (!r.text) { res.innerHTML = `<p class="small muted">No te oí. Revisa el micrófono e intenta de nuevo.</p>`; return; }
-    savePron("leccion", s.texto, r);
+    savePron("leccion", s.texto, r, LS.row.id);
     const weak = r.palabras.filter((w) => w.error !== "Insertion" && (w.error === "Omission" || (w.score != null && w.score < 60))).map((w) => w.w);
     const amber = r.palabras.some((w) => w.error !== "Insertion" && w.score != null && w.score < 80);
     res.innerHTML = `${scoresHTML(r)}${wordsHTML(r.palabras)}

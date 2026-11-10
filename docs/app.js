@@ -39,7 +39,7 @@ let sb = null;
 
 /* ---------------- UI helpers ---------------- */
 const icon = (n) => `<svg class="ii" aria-hidden="true"><use href="#i-${n}"/></svg>`;
-window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop") };
+window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop"), trash: icon("trash") };
 function show(id) {
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
 }
@@ -714,6 +714,7 @@ async function correct(text, prev, bubble, conf) {
   }
   try {
     const escena = S.scene.title;      // la de este turno, aunque ya hayas cambiado de escena
+    const leccion_id = S.scene.returnTo?.kind === "lesson" ? S.scene.returnTo.id : null;
     const r = await fnFetch("corregir", { scene: escena, prev, text });
     if (!r.ok) { failed(); return; }
     const c = await r.json();
@@ -722,7 +723,7 @@ async function correct(text, prev, bubble, conf) {
     S.usage.sonnetIn += c.usage?.input_tokens || 0; S.usage.sonnetOut += c.usage?.output_tokens || 0;
     if (/^(A1|A2|B1|B2|C1|C2)$/.test(c.cefr)) S.cefrVotes.push(c.cefr);
     if (window.Datos && (!c.ok || c.natural)) {
-      Datos.addFromCorrection({ escena, dijiste: text, correcta: c.ok ? "" : c.better, nativo: c.natural, tip: c.tip, contexto: prev });
+      Datos.addFromCorrection({ escena, dijiste: text, correcta: c.ok ? "" : c.better, nativo: c.natural, tip: c.tip, contexto: prev, leccion_id });
     }
     if (!c.ok && c.better && corrections) corrections.push({ original: text, better: c.better, tip: c.tip || "" });
     if (simulacro) { S.recapRender?.(); return; }
@@ -966,6 +967,7 @@ function openScene() {
   S.usage = { haikuIn: 0, haikuOut: 0, haikuCacheRead: 0, sonnetIn: 0, sonnetOut: 0, turns: 0, sttSeconds: 0, ttsChars: 0 };
   S.cefrVotes = []; S.confs = [];
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
+  if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
   addBubble("assistant", S.scene.open);
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
@@ -1399,6 +1401,11 @@ function speakEN(text, opts = {}) {
 function setLevel(l) { S.level = l; store.set("level", l); }
 window.Sala = {
   ojoClave,
+  // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente
+  olvidarEscena(id, titulos) {
+    delete S.voices[id]; store.set("voices", S.voices);
+    const retos = store.get("retos", {}); for (const t of titulos) delete retos[t]; store.set("retos", retos);
+  },
   sb: () => sb, show, ensureVoice, speakEN, leerCorreccion, escucharUnaVez, similarity, notice, fnFetch, store, esc,
   azure: () => ({ token: AZ.token, region: AZ.region, refresh: () => azureToken() }),
   backHome: () => {

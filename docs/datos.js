@@ -108,14 +108,14 @@ const Datos = {
   due(now = new Date()) { return cards.filter((c) => !c.archivada && new Date(c.due) <= now).sort((a, b) => new Date(a.due) - new Date(b.due)); },
 
   // Guarda una corrección de la conversación como tarjeta (sin duplicar la misma forma correcta)
-  addFromCorrection({ escena, dijiste, correcta, nativo, tip, contexto }) {
+  addFromCorrection({ escena, dijiste, correcta, nativo, tip, contexto, leccion_id = null }) {
     const target = correcta || nativo;
     if (!target) return null;
     if (cards.some((c) => !c.archivada && norm(c.correcta) === norm(target))) return null;
     const now = new Date();
     const row = {
       id: uuid(), origen: correcta ? "correccion" : "natural", escena: escena || null, dijiste: dijiste || null,   // sin corrección: estaba bien, solo hay forma más natural
-      correcta: target, nativo: correcta && nativo ? nativo : null, tip: tip || null, contexto: contexto || null,
+      correcta: target, nativo: correcta && nativo ? nativo : null, tip: tip || null, contexto: contexto || null, leccion_id,
       ...fromFsrs(F.createEmptyCard(now)), archivada: false, creado: now.toISOString(),
     };
     cards.push(row);
@@ -152,14 +152,22 @@ const Datos = {
   },
 
   // Tarjeta de una expresión de video (u otra fuente): mismo FSRS, sin duplicados
-  addCard({ origen = "video", escena = null, correcta, nativo = null, tip = null, contexto = null }) {
+  addCard({ origen = "video", escena = null, correcta, nativo = null, tip = null, contexto = null, leccion_id = null }) {
     if (!correcta || cards.some((c) => !c.archivada && norm(c.correcta) === norm(correcta))) return null;
     const now = new Date();
-    const row = { id: uuid(), origen, escena, dijiste: null, correcta, nativo, tip, contexto,
+    const row = { id: uuid(), origen, escena, dijiste: null, correcta, nativo, tip, contexto, leccion_id,
       ...fromFsrs(F.createEmptyCard(now)), archivada: false, creado: now.toISOString() };
     cards.push(row);
     enqueue({ op: "upsert", table: "tarjetas", row });
     return row;
+  },
+  // El servidor ya borró la lección y lo suyo: se quita la copia de este equipo y lo que aún no se había subido.
+  forgetLesson(id) {
+    const fuera = new Set(cards.filter((c) => c.leccion_id === id).map((c) => c.id));
+    cards = cards.filter((c) => !fuera.has(c.id));
+    queue = queue.filter((o) => !(o.row?.leccion_id === id || (o.table === "lecciones" && o.id === id)
+      || (o.table === "tarjetas" && fuera.has(o.id)) || (o.table === "repasos" && fuera.has(o.row?.tarjeta_id))));
+    persist();
   },
   has: (texto) => cards.some((c) => !c.archivada && norm(c.correcta) === norm(texto)),
   // Escrituras genéricas con la misma cola offline (test, lecciones, pronunciación, perfil)
