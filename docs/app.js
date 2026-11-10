@@ -89,12 +89,40 @@ function addBubble(role, text) {
   scrollLog();
   return el;
 }
-// El personaje habla en inglés; el español solo aparece si lo pides. En el simulacro no hay ayudas, como en una entrevista real.
-function addTraducir(el, texto) {
-  if (!texto || S.scene?.prep || el.querySelector(".trad")) return;
+// Ayudas bajo cada frase del personaje. En el simulacro solo se puede pedir que repita, como en una entrevista real.
+function addAyudas(el, texto) {
+  if (!texto || el.querySelector(".char-acts")) return;
+  const acts = document.createElement("div"); acts.className = "char-acts";
+  el.querySelector(".bubble").after(acts);
+  const oir = (label, rate, aria) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "replay"; b.innerHTML = IC.play + label; b.setAttribute("aria-label", aria);
+    b.onclick = () => repetirFrase(texto, rate);
+    acts.appendChild(b);
+  };
+  oir("Repetir", undefined, "Repetir esta frase");
+  if (S.scene?.prep) return;
+  oir("Lento", -30, "Repetir esta frase más lento");
+  addTraducir(el, texto, acts);
+}
+// Suena como una corrección: el micrófono no la toma como si la hubieras dicho tú, y se salta tocando el círculo.
+let repetirHasta = 0;
+function repetirFrase(texto, rate) {
+  if (Date.now() < repetirHasta) return;   // otro toque mientras suena no la encola de nuevo
+  repetirHasta = Date.now() + 8000 + texto.length * 150;
+  unlockAudio();
+  const gen = S.gen;
+  S.lastCoachText = texto;
+  speakItem({ coach: true, gen, text: texto, plain: texto, ssml: ssml(texto, voiceFor(S.scene), rate),
+    onStart: () => { $("#live").textContent = ""; $("#stateLabel").textContent = "Repitiendo · toca el círculo para saltarla"; },
+    onEnd: () => { repetirHasta = 0; } });
+  player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
+}
+// El personaje habla en inglés; el español solo aparece si lo pides.
+function addTraducir(el, texto, acts) {
   const escena = S.scene.title, VER = "Ver en español", OCULTAR = "Ocultar español";
   const b = document.createElement("button");
-  b.type = "button"; b.className = "replay trad"; b.textContent = VER; b.setAttribute("aria-expanded", "false");
+  b.type = "button"; b.className = "replay"; b.textContent = VER; b.setAttribute("aria-expanded", "false");
   let caja = null, ocupado = false;
   const mostrar = () => { if (el === $("#log").lastElementChild) scrollLog(); else caja.scrollIntoView({ block: "nearest" }); };
   b.onclick = async () => {
@@ -112,7 +140,7 @@ function addTraducir(el, texto) {
       if (!r.ok || !j.es) throw j;
       S.usage.haikuIn += j.usage?.input_tokens || 0; S.usage.haikuOut += j.usage?.output_tokens || 0;
       caja = document.createElement("p"); caja.className = "trad-es"; caja.lang = "es"; caja.textContent = j.es;
-      b.after(caja);
+      acts.after(caja);
       b.textContent = OCULTAR; b.setAttribute("aria-expanded", "true");
       mostrar();
     } catch (e) {
@@ -120,7 +148,7 @@ function addTraducir(el, texto) {
     }
     ocupado = false;
   };
-  el.querySelector(".bubble").after(b);
+  acts.appendChild(b);
 }
 function scrollLog() { requestAnimationFrame(() => { const m = $("#logWrap"); m.scrollTop = m.scrollHeight; }); }
 // Compara por palabras (sin mayúsculas ni puntuación) y marca solo lo que cambió.
@@ -205,8 +233,8 @@ function makeSynth() {
   try { SDK.Connection.fromSynthesizer(AZ.synth).openConnection(); } catch {}
 }
 function voiceFor(scene) { return S.voices[scene.id] || scene.voice; }
-function ssml(text, voice) {
-  const rate = S.rate ? `${S.rate > 0 ? "+" : ""}${S.rate}%` : "0%";
+function ssml(text, voice, velocidad = S.rate) {
+  const rate = velocidad ? `${velocidad > 0 ? "+" : ""}${velocidad}%` : "0%";
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${escXml(text)}</prosody></voice></speak>`;
 }
 function azureSynthSsml(doc, chars) {
@@ -716,7 +744,7 @@ async function characterTurn(gen) {
     flush(true);
     full = full.trim();
     if (full) S.history.push({ role: "assistant", content: full });
-    if (full && bubble) addTraducir(bubble, full);
+    if (full && bubble) addAyudas(bubble, full);
     if (S.sesion && full) S.sesion.palabras_pers += countWords(full);
     scrollLog();
     player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); maybeCoach(); };
@@ -1003,7 +1031,7 @@ function openScene() {
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
-  addTraducir(addBubble("assistant", S.scene.open), S.scene.open);
+  addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
 }
 const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";
