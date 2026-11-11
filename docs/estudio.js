@@ -79,8 +79,10 @@ function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, auto
     cfg.outputFormat = SDK.OutputFormat.Detailed;
     cfg.setProperty(SDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, reference ? "1200" : "1800");
     const r = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromDefaultMicrophoneInput());
-    const pac = new SDK.PronunciationAssessmentConfig(reference || "", SDK.PronunciationAssessmentGradingSystem.HundredMark, SDK.PronunciationAssessmentGranularity.Word, !!reference);
+    // Detalle por sonido (fonema, en IPA) y qué sonido se oyó en su lugar: mismo audio, mismo costo en Azure
+    const pac = new SDK.PronunciationAssessmentConfig(reference || "", SDK.PronunciationAssessmentGradingSystem.HundredMark, SDK.PronunciationAssessmentGranularity.Phoneme, !!reference);
     try { pac.enableProsodyAssessment = true; } catch {}
+    try { pac.phonemeAlphabet = "IPA"; pac.nbestPhonemeCount = 1; } catch {}
     pac.applyTo(r);
     rec = own = r;
     r.recognizing = (_s, e) => { heardAny = true; armIdle(); onPartial([...segs.map((s) => s.text), e.result.text].join(" ")); };
@@ -108,8 +110,77 @@ function parseSeg(result) {
     secs: (result.duration || 0) / 1e7,
     exactitud: pa.AccuracyScore ?? null, fluidez: pa.FluencyScore ?? null, prosodia: pa.ProsodyScore ?? null,
     completitud: pa.CompletenessScore ?? null, total: pa.PronScore ?? null,
-    words: (nb.Words || []).map((w) => ({ w: w.Word, score: w.PronunciationAssessment?.AccuracyScore ?? null, error: w.PronunciationAssessment?.ErrorType || "None" })),
+    words: (nb.Words || []).map((w) => ({
+      w: w.Word, score: w.PronunciationAssessment?.AccuracyScore ?? null, error: w.PronunciationAssessment?.ErrorType || "None",
+      // f: cada sonido con su puntaje (s) y el que se oyó en su lugar (d)
+      f: (w.Phonemes || []).map((x) => ({ p: x.Phoneme, s: x.PronunciationAssessment?.AccuracyScore ?? null, d: x.PronunciationAssessment?.NBestPhonemes?.[0]?.Phoneme || null })).filter((x) => x.p),
+    })),
   };
+}
+/* ---------- sonidos del inglés que más cuestan a un hispanohablante ---------- */
+// Cómo ponerlo en la boca, en una línea, y ejemplos. Las claves son los fonemas IPA que devuelve Azure (en-US).
+const SONIDOS = {
+  "θ": ["Saca la punta de la lengua entre los dientes y sopla, sin voz.", "think, three"],
+  "ð": ["Lengua entre los dientes, pero con voz: debe vibrar. No es una «d» fuerte.", "this, the"],
+  "ɪ": ["Más corta y relajada que la «i» española, casi hacia la «e».", "it, ship"],
+  "i": ["Una «i» larga y tensa, como sonriendo.", "eat, sheep"],
+  "æ": ["Abre bien la boca: un sonido entre «a» y «e».", "cat, bad"],
+  "ʌ": ["Una «a» corta y relajada, con la boca a medio abrir.", "cup, but"],
+  "ə": ["Vocal muy débil y corta, sin fuerza: casi no se oye.", "about, the"],
+  "ɑ": ["Una «a» abierta y larga, desde atrás.", "hot, father"],
+  "ɔ": ["Una «o» abierta y larga.", "law, talk"],
+  "ʊ": ["Una «u» corta y relajada, sin redondear tanto los labios.", "book, good"],
+  "u": ["Una «u» larga, con los labios redondos.", "food, you"],
+  "ɛ": ["Una «e» abierta.", "bed, said"],
+  "ɝ": ["Vocal con «r» inglesa: la lengua se curva hacia atrás sin tocar el paladar.", "work, first"],
+  "ɚ": ["Vocal débil con «r» inglesa, sin vibrar.", "teacher, better"],
+  "ɹ": ["La lengua no toca el paladar ni vibra: se curva hacia atrás.", "right, very"],
+  "v": ["Dientes de arriba sobre el labio de abajo, con voz. No es una «b».", "very, have"],
+  "z": ["Como una «s» que zumba: con voz.", "is, zero"],
+  "ʃ": ["Como cuando pides silencio: «shh».", "she, nation"],
+  "ʒ": ["Como «sh», pero con voz.", "measure, usually"],
+  "dʒ": ["Una «ch» con voz, como una «y» fuerte.", "job, change"],
+  "tʃ": ["Como la «ch» española.", "check, much"],
+  "h": ["Un soplo suave. Nunca la «j» española.", "home, have"],
+  "ŋ": ["Se queda en la nariz: no pronuncies la «g» del final.", "thinking, long"],
+  "j": ["Como la «i» de «hielo».", "yes, you"],
+  "w": ["Como la «u» de «huevo».", "we, work"],
+  "eɪ": ["Diptongo «ei», que termina cerrado.", "say, late"],
+  "oʊ": ["Diptongo «ou»: redondea los labios al final.", "go, know"],
+  "aɪ": ["Diptongo «ai».", "my, time"],
+  "aʊ": ["Diptongo «au».", "now, about"],
+  "ɔɪ": ["Diptongo «oi».", "boy, choice"],
+};
+const FINALES = new Set(["t", "d", "s", "z", "k", "p", "b", "g", "v", "m", "n", "l"]);
+// Sonido más débil de una palabra (o null si todos salieron bien)
+function sonidoDebil(w) {
+  if (w.error === "Omission" || w.error === "Insertion" || !w.f?.length) return null;
+  let peor = null;
+  w.f.forEach((x, i) => { if (x.s != null && x.s < 60 && (!peor || x.s < peor.s)) peor = { ...x, final: i === w.f.length - 1 }; });
+  return peor;
+}
+function consejoSonido(x) {
+  const t = SONIDOS[x.p];
+  if (t) return t[0];
+  if (x.final && FINALES.has(x.p)) return "Es el sonido final: pronúncialo, no te lo comas.";
+  return "Escúchala en lento y repite ese sonido.";
+}
+// «/θ/ sonó como /s/» cuando Azure oyó otro sonido; si no, solo el sonido y su puntaje
+function sonidoTexto(x) {
+  return x.d && x.d !== x.p ? `/${x.p}/ sonó como /${x.d}/` : `el sonido /${x.p}/ (${Math.round(x.s)} de 100)`;
+}
+// Los dos sonidos más débiles de toda la frase, con las palabras donde fallaron
+function sonidosHTML(words) {
+  const m = new Map();
+  for (const w of words) {
+    const x = sonidoDebil(w); if (!x) continue;
+    const k = x.p, e = m.get(k) || { x, n: 0, palabras: new Set(), suma: 0 };
+    e.n++; e.suma += x.s; e.palabras.add(w.w.toLowerCase()); if (x.d && x.d !== x.p) e.x = x;
+    m.set(k, e);
+  }
+  const top = [...m.values()].sort((a, b) => b.n - a.n || a.suma / a.n - b.suma / b.n).slice(0, 2);
+  if (!top.length) return "";
+  return `<div class="sonidos"><b>Sonidos para practicar</b>${top.map((e) => `<div class="sonido"><span class="fon">/${esc(e.x.p)}/</span><span><b>${esc([...e.palabras].slice(0, 3).join(", "))}</b>${e.x.d && e.x.d !== e.x.p ? ` · sonó como /${esc(e.x.d)}/` : ""}<br><span class="muted">${esc(consejoSonido(e.x))}${SONIDOS[e.x.p] ? ` Como en: ${esc(SONIDOS[e.x.p][1])}.` : ""}</span></span></div>`).join("")}</div>`;
 }
 function summarize(segs) {
   const out = { text: segs.map((s) => s.text).join(" ").trim(), segundos: Math.round(segs.reduce((a, s) => a + s.secs, 0)), palabras: segs.flatMap((s) => s.words) };
@@ -126,7 +197,8 @@ function wordsHTML(words) {
   return `<p class="pwords">${words.map((w) => {
     const cls = w.error === "Omission" ? "om" : w.error === "Insertion" ? "ins-w" : w.score == null ? "" : w.score >= 80 ? "good" : w.score >= 60 ? "mid" : "bad";
     if (w.score == null) return `<span class="${cls}">${esc(w.w)}</span>`;
-    return `<button type="button" class="${cls}" data-w="${esc(w.w)}" data-sc="${esc(w.score)}" aria-label="${esc(w.w)}: ${esc(w.score)} de 100">${esc(w.w)}</button>`;
+    const x = sonidoDebil(w), f = x ? `${sonidoTexto(x)}. ${consejoSonido(x)}` : "";
+    return `<button type="button" class="${cls}" data-w="${esc(w.w)}" data-sc="${esc(w.score)}" data-f="${esc(f)}" aria-label="${esc(w.w)}: ${esc(w.score)} de 100${f ? ". " + esc(f) : ""}">${esc(w.w)}</button>`;
   }).join(" ")}</p>`;
 }
 // Tocar una palabra muestra su puntaje (en el teléfono no existe el «hover»)
@@ -135,7 +207,7 @@ document.addEventListener("click", (e) => {
   const p = b.closest(".pwords");
   let hint = p.nextElementSibling;
   if (!hint?.classList.contains("pw-hint")) { hint = document.createElement("p"); hint.className = "pw-hint muted small"; hint.setAttribute("role", "status"); p.after(hint); }
-  hint.textContent = `«${b.dataset.w}»: ${b.dataset.sc} de 100`;
+  hint.textContent = `«${b.dataset.w}»: ${b.dataset.sc} de 100${b.dataset.f ? ` · ${b.dataset.f}` : ""}`;
 });
 function scoresHTML(r) {
   const k = [["exactitud", "Exactitud"], ["fluidez", "Fluidez"], ["prosodia", "Entonación"], ["completitud", "Completitud"]].filter(([x]) => r[x] != null);
@@ -1198,9 +1270,9 @@ function shadow(s) {
     savePron("leccion", s.texto, r, LS.row.id);
     const weak = r.palabras.filter((w) => w.error !== "Insertion" && (w.error === "Omission" || (w.score != null && w.score < 60))).map((w) => w.w);
     const amber = r.palabras.some((w) => w.error !== "Insertion" && w.score != null && w.score < 80);
-    res.innerHTML = `${scoresHTML(r)}${wordsHTML(r.palabras)}
+    res.innerHTML = `${scoresHTML(r)}${wordsHTML(r.palabras)}${sonidosHTML(r.palabras)}
       <p class="small muted">${weak.length ? `Practica: <b>${esc([...new Set(weak)].slice(0, 5).join(", "))}</b>. Escúchalas en lento y repite.` : amber ? "Ninguna palabra quedó en rojo; las de color ámbar todavía se pueden pulir." : "Todas las palabras salieron claras."}</p>
-      <p class="small muted">Verde: clara · ámbar: mejorable · rojo: no se entendió · tachada: no la dijiste.</p>`;
+      <p class="small muted">Verde: clara · ámbar: mejorable · rojo: no se entendió · tachada: no la dijiste. Toca una palabra para ver qué sonido falló.</p>`;
   });
 }
 function step5() {
@@ -1686,5 +1758,5 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (!document.getElementById("talk").hidden) { Sala.notice("Tu lección está lista. Ábrela en «Aprender con un video» cuando termines esta práctica.", "info"); return; }
   openLesson(e.data.abrirLeccion);
 });
-window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, guardarNivel, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
+window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, guardarNivel, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML, _sonidos: sonidosHTML };
 })();
