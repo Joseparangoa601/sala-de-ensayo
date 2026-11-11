@@ -1319,6 +1319,7 @@ function renderHome() {
   $("#rateSel").value = String(S.rate);
   $("#bargeChk").checked = S.bargeIn;
   $("#corrChk").checked = S.voiceCorr;
+  paintPrefs();
   renderReviewCount();
   renderReminder();
   refreshToday();
@@ -1514,11 +1515,11 @@ function wire() {
     userSaid(t);
   });
   for (const b of document.querySelectorAll("[data-nivel]")) b.onclick = () => { setLevel(b.dataset.nivel); paintNivel(); };
-  $("#rateSel").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); };
-  $("#rateSel2").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); $("#rateSel").value = e.target.value; };
-  $("#bargeChk").onchange = (e) => { S.bargeIn = e.target.checked; store.set("bargeIn", S.bargeIn); };
-  $("#corrChk").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk2").checked = S.voiceCorr; };
-  $("#corrChk2").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk").checked = S.voiceCorr; if (!S.voiceCorr) coachQ.length = 0; };
+  $("#rateSel").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); paintPrefs(); };
+  $("#rateSel2").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); $("#rateSel").value = e.target.value; paintPrefs(); };
+  $("#bargeChk").onchange = (e) => { S.bargeIn = e.target.checked; store.set("bargeIn", S.bargeIn); paintPrefs(); };
+  $("#corrChk").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk2").checked = S.voiceCorr; paintPrefs(); };
+  $("#corrChk2").onchange = (e) => { S.voiceCorr = e.target.checked; store.set("voiceCorr", S.voiceCorr); $("#corrChk").checked = S.voiceCorr; if (!S.voiceCorr) coachQ.length = 0; paintPrefs(); };
   $("#voiceSel").onchange = (e) => { S.voices[S.scene.id] = e.target.value; store.set("voices", S.voices); };
   $("#voiceTry").onclick = async () => {
     const btn = $("#voiceTry"), scene = S.scene;
@@ -1628,6 +1629,11 @@ function speakEN(text, opts = {}) {
 }
 // desdeCuenta: el nivel llegó del servidor; no se vuelve a subir
 function setLevel(l, desdeCuenta = false) { S.level = l; store.set("level", l); if (!desdeCuenta) window.Estudio?.guardarNivel(l); }
+// Resumen de la tarjeta Preferencias con lo que está elegido
+function paintPrefs() {
+  const voz = { "-15": "Voz más lenta", "-8": "Voz un poco lenta", "0": "Voz natural", "8": "Voz un poco rápida" }[String(S.rate)] || "Voz natural";
+  $("#prefsNow").textContent = [voz, S.bargeIn ? "puedes interrumpir" : "sin interrumpir", S.voiceCorr ? "correcciones en voz alta" : "correcciones solo en texto"].join(" · ");
+}
 // Tarjeta «Tu nivel» en Tú: cambiarlo sin hacer el test
 const NIVEL_NOMBRE = { A1: "Principiante", A2: "Básico", B1: "Intermedio", B2: "Intermedio alto", C1: "Avanzado", C2: "Casi nativo" };
 function paintNivel() {
