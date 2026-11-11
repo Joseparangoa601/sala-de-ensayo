@@ -1307,7 +1307,6 @@ function renderHome() {
     if (row?.classList.contains("abierta")) { cerrarDeslizadas(); return; }     // con las acciones a la vista, tocar las cierra
     startScene(allScenes().find((s) => s.id === b.dataset.id));
   };
-  $("#levelSel").value = S.level;
   paintNivel();
   const t = store.get("lastTest", null);
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
@@ -1514,8 +1513,7 @@ function wire() {
     if (!AZ.synth) azureToken().then(makeSynth).catch(() => {});
     userSaid(t);
   });
-  $("#levelSel").onchange = (e) => { setLevel(e.target.value); renderHome(); };
-  for (const b of document.querySelectorAll("[data-nivel]")) b.onclick = () => { setLevel(b.dataset.nivel); $("#levelSel").value = S.level; paintNivel(); };
+  for (const b of document.querySelectorAll("[data-nivel]")) b.onclick = () => { setLevel(b.dataset.nivel); paintNivel(); };
   $("#rateSel").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); };
   $("#rateSel2").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); $("#rateSel").value = e.target.value; };
   $("#bargeChk").onchange = (e) => { S.bargeIn = e.target.checked; store.set("bargeIn", S.bargeIn); };

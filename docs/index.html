@@ -35,6 +35,7 @@
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
@@ -109,10 +110,8 @@
       <button class="tile" id="passBtn"><span class="ic" aria-hidden="true"><svg><use href="#i-pen"/></svg></span><span><b>Cambiar contraseña</b><small>Elige una clave solo tuya</small></span></button>
       </div>
       <details class="prefs">
-      <summary>Preferencias</summary>
+      <summary class="tile"><span class="ic" aria-hidden="true"><svg><use href="#i-sliders"/></svg></span><span><b>Preferencias</b><small>Velocidad de la voz, interrumpir y correcciones en voz alta</small></span><svg class="flecha" aria-hidden="true"><use href="#i-chev"/></svg></summary>
       <div class="stack">
-        <label for="levelSel">Tu nivel (ajusta el vocabulario del personaje)</label>
-        <select id="levelSel"><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option><option>C2</option></select>
         <label for="rateSel">Velocidad de la voz</label>
         <select id="rateSel"><option value="-15">Más lenta</option><option value="-8">Un poco lenta</option><option value="0">Natural</option><option value="8">Un poco rápida</option></select>
         <label class="check"><input type="checkbox" id="bargeChk"> Puedo interrumpir al personaje hablando encima</label>
