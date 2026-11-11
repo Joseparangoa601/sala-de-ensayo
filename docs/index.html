@@ -95,6 +95,12 @@
     </div>
     <div class="tabpanel" data-tab="tu" hidden>
       <h1>Tú</h1>
+      <section class="nivel" aria-labelledby="nivelTit">
+        <b id="nivelTit">Tu nivel</b>
+        <small id="nivelNow">Los personajes y las lecciones nuevas te hablan a esta medida.</small>
+        <div class="nivel-row" role="group" aria-label="Elige tu nivel"><button data-nivel="A1">A1</button><button data-nivel="A2">A2</button><button data-nivel="B1">B1</button><button data-nivel="B2">B2</button><button data-nivel="C1">C1</button><button data-nivel="C2">C2</button></div>
+        <small class="muted" id="nivelNombre"></small>
+      </section>
       <div class="tiles one">
       <button class="tile" id="progressBtn"><span class="ic" aria-hidden="true"><svg><use href="#i-trend"/></svg></span><span><b>Mi progreso</b><small>Semana, repasos y nivel</small></span></button>
       <div class="tile" id="paseTile" style="display:none"><span class="ic" aria-hidden="true"><svg><use href="#i-mic"/></svg></span><span><b>Tu pase</b><small id="paseNow"></small></span></div>

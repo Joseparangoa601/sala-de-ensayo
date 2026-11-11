@@ -1308,6 +1308,7 @@ function renderHome() {
     startScene(allScenes().find((s) => s.id === b.dataset.id));
   };
   $("#levelSel").value = S.level;
+  paintNivel();
   const t = store.get("lastTest", null);
   $("#levelNow").textContent = t ? `Tu nivel: ${t.nivel} · test del ${new Date(t.fecha).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}` : `Nivel ${S.level} · sin test todavía`;
   const gs = window.Estudio?.goalsSummary?.() || "";
@@ -1514,6 +1515,7 @@ function wire() {
     userSaid(t);
   });
   $("#levelSel").onchange = (e) => { setLevel(e.target.value); renderHome(); };
+  for (const b of document.querySelectorAll("[data-nivel]")) b.onclick = () => { setLevel(b.dataset.nivel); $("#levelSel").value = S.level; paintNivel(); };
   $("#rateSel").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); };
   $("#rateSel2").onchange = (e) => { S.rate = Number(e.target.value); store.set("rate", S.rate); $("#rateSel").value = e.target.value; };
   $("#bargeChk").onchange = (e) => { S.bargeIn = e.target.checked; store.set("bargeIn", S.bargeIn); };
@@ -1627,6 +1629,13 @@ function speakEN(text, opts = {}) {
   return now_.promise;
 }
 function setLevel(l) { S.level = l; store.set("level", l); }
+// Tarjeta «Tu nivel» en Tú: cambiarlo sin hacer el test
+const NIVEL_NOMBRE = { A1: "Principiante", A2: "Básico", B1: "Intermedio", B2: "Intermedio alto", C1: "Avanzado", C2: "Casi nativo" };
+function paintNivel() {
+  for (const b of document.querySelectorAll("[data-nivel]")) { const on = b.dataset.nivel === S.level; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); }
+  const t = store.get("lastTest", null);
+  $("#nivelNombre").textContent = `${S.level} · ${NIVEL_NOMBRE[S.level] || ""}${t ? ` · tu último test dio ${t.nivel}` : ""}`;
+}
 window.Sala = {
   ojoClave, limiteMsg, deslizable, cerrarDeslizadas, tactil,
   // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente

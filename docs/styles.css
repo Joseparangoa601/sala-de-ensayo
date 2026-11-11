@@ -189,6 +189,12 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .chip.static{display:inline-flex;align-items:center}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .lvchips{margin:10px 0 2px}
+/* Tarjeta «Tu nivel» (pestaña Tú) */
+.nivel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:14px 0 4px;display:flex;flex-direction:column;gap:6px}
+.nivel small{font-size:.85rem}
+.nivel-row{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:4px}
+.nivel-row button{min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-weight:600}
+.nivel-row button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .chips .chip{white-space:normal;text-align:left;flex:0 1 auto;max-width:100%;padding:8px 12px}
 .exprs{display:grid;gap:8px}
 .expr{display:flex;flex-direction:column;gap:3px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
