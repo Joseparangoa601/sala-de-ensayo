@@ -193,6 +193,15 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .tline{text-align:left;background:transparent;border:0;border-left:3px solid transparent;padding:6px 8px;border-radius:6px;min-height:40px}
 .tline.now{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .ts{font:.72rem var(--mono);color:var(--muted)}
+/* Traducción por línea: se pide (pulsación larga en celular, «ES» al pasar el mouse en computador) y se ve una a la vez */
+.tlrow{display:flex;align-items:flex-start}
+.tlrow .tline{flex:1;min-width:0;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.ttr{flex:none;width:44px;min-height:40px;border:0;background:transparent;color:var(--muted);font:600 .72rem var(--mono);border-radius:8px;opacity:0}
+.tlrow:hover .ttr,.ttr:focus-visible{opacity:1}
+@media (hover:none){.ttr{position:absolute;width:1px;height:1px;min-height:0;overflow:hidden;clip:rect(0 0 0 0)}}
+.tl-es{margin:-2px 0 6px 11px;padding:6px 10px;border-left:3px solid var(--line);color:var(--muted);font-size:.9rem;cursor:pointer}
+.tl-es.cargando{font-style:italic}
+.tl-es.error{color:var(--del)}
 .segnav{display:flex;justify-content:space-between;align-items:center;font-weight:600}
 .dict{line-height:2.2;margin:4px 0}
 .gap{display:inline-block;width:7.5em;min-height:34px;padding:2px 8px;margin:0 2px;border-radius:8px}

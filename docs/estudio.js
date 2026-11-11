@@ -1009,12 +1009,56 @@ function step3() {
   let lastCur = -1;
   sb_(`
     <p><b>La misma parte, ahora con el texto en inglés: ${parteVideo().rango}.</b> Toca una línea para oírla de nuevo.</p>
+    ${Sala.tactil && !store().get("pistaTraducir", false) ? `<p class="muted small lpista" id="trPista">Mantén presionada una línea para ver su traducción.</p>` : ""}
     <div class="rc-actions"><button class="primary big" id="cPlay">${IC.play}Ver con texto</button><button class="ghost" id="cSlow">${IC.play}0,75×</button></div>
-    <div class="transcript" id="tr">${lines.map((c, i) => `<button class="tline" data-i="${i}" data-t="${c.t}"><span class="ts">${mmss(c.t)}</span> ${esc(c.text)}</button>`).join("")}</div>
+    <div class="transcript" id="tr">${lines.map((c, i) => `<div class="tlrow"><button class="tline" data-i="${i}" data-t="${c.t}"><span class="ts">${mmss(c.t)}</span> ${esc(c.text)}</button><button class="ttr" data-i="${i}" aria-label="Traducir esta línea" title="Traducir">ES</button></div>`).join("")}</div>
     ${nextBtn(4)}`);
   on("cPlay", () => playTramo(1));
   on("cSlow", () => playTramo(0.75));
-  for (const b of document.querySelectorAll(".tline")) b.onclick = () => { const c = lines[Number(b.dataset.i)]; playRange(c.t, c.t + c.d - 0.08, { text: c.text }); };   // termina donde empieza la siguiente, nunca después
+  let largo = false;   // la pulsación larga ya abrió la traducción: el toque que la suelta no reproduce
+  for (const b of document.querySelectorAll(".tline")) {
+    b.onclick = () => { if (largo) { largo = false; return; } const c = lines[Number(b.dataset.i)]; playRange(c.t, c.t + c.d - 0.08, { text: c.text }); };   // termina donde empieza la siguiente, nunca después
+    // Mantener presionada (medio segundo, sin mover el dedo) muestra la traducción debajo de la línea
+    let tm = null, x0 = 0, y0 = 0;
+    const cancela = () => { clearTimeout(tm); tm = null; };
+    b.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse") return;
+      x0 = e.clientX; y0 = e.clientY; largo = false; cancela();
+      tm = setTimeout(() => { tm = null; largo = true; navigator.vibrate?.(10); traducirLinea(Number(b.dataset.i)); }, 500);
+    });
+    b.addEventListener("pointermove", (e) => { if (tm && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancela(); });
+    b.addEventListener("pointercancel", cancela);
+    b.addEventListener("pointerup", cancela);
+    b.addEventListener("contextmenu", (e) => e.preventDefault());   // Android: sin el menú del sistema
+  }
+  for (const b of document.querySelectorAll(".ttr")) b.onclick = () => traducirLinea(Number(b.dataset.i));
+  // Una sola traducción a la vista: abrir otra cierra la anterior; tocar la traducción (o volver a pedir la misma) la cierra
+  const CLAVE = "tradLineas", lid = LS.row.id;
+  async function traducirLinea(i) {
+    const abierta = $("#tr .tl-es");
+    if (abierta) { const misma = Number(abierta.dataset.i) === i; abierta.remove(); if (misma) return; }
+    if (Sala.tactil && !store().get("pistaTraducir", false)) { store().set("pistaTraducir", true); $("#trPista")?.remove(); }
+    const row = document.querySelector(`.tline[data-i="${i}"]`)?.parentElement; if (!row) return;
+    const p = document.createElement("p"); p.className = "tl-es"; p.lang = "es"; p.dataset.i = i; p.setAttribute("role", "status");
+    p.onclick = () => p.remove();
+    row.after(p);
+    const cache = store().get(CLAVE, {}), mio = cache[lid] || {}, texto = lines[i].text;
+    if (mio[texto]) { p.textContent = mio[texto]; return; }
+    p.textContent = "Traduciendo…"; p.classList.add("cargando");
+    try {
+      const contexto = lines.slice(Math.max(0, i - 4), i).map((c) => ({ role: "assistant", content: c.text }));
+      const r = await Sala.fnFetch("generar", { modo: "traducir", texto, escena: `Video: ${LS.row.titulo || ""}`.slice(0, 200), contexto });
+      const j = await r.json();
+      if (!r.ok || !j.es) throw j;
+      const todo = store().get(CLAVE, {});
+      todo[lid] = { ...(todo[lid] || {}), [texto]: j.es };
+      const ids = Object.keys(todo); if (ids.length > 30) delete todo[ids[0]];   // solo las 30 lecciones más recientes
+      store().set(CLAVE, todo);
+      if (p.isConnected) { p.textContent = j.es; p.classList.remove("cargando"); }
+    } catch (e) {
+      if (p.isConnected) { p.textContent = Sala.limiteMsg(e) || "No se pudo traducir. Revisa tu conexión e intenta de nuevo."; p.classList.remove("cargando"); p.classList.add("error"); }
+    }
+  }
   // Si la persona está moviendo la lista, el video no se la arrebata durante 4 s
   const wrap = $("#studyWrap");
   let userScrollAt = 0;
