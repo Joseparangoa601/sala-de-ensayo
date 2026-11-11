@@ -1513,6 +1513,41 @@ function sceneHome() {
 /* =====================================================================
    MI PROGRESO
    ===================================================================== */
+/* ---------- Cómo se usa: tutoriales en video (bucket privado «tutoriales»; enlace firmado de 1 hora) ---------- */
+const TUTORIALES = [
+  { id: "t1", n: 1, t: "Primeros pasos", s: "Tu nivel, tus objetivos y el aviso diario", dura: "27 s" },
+  { id: "t2", n: 2, t: "Conversar con un personaje", s: "Responder en voz alta y ver la corrección", dura: "33 s" },
+  { id: "t3", n: 3, t: "Preparar una entrevista", s: "Con la oferta y tu hoja de vida", pronto: true },
+  { id: "t4", n: 4, t: "Aprender con un video", s: "Elegir la parte y estudiarla por pasos", pronto: true },
+  { id: "t5", n: 5, t: "Frase a frase y pronunciación", s: "Dictado y puntaje por palabra", pronto: true },
+  { id: "t6", n: 6, t: "Repaso y progreso", s: "Tus errores vuelven antes de olvidarlos", dura: "33 s" },
+];
+async function tutorialsScreen() {
+  screen("Cómo se usa", "Videos cortos, paso a paso", home);
+  body(`<p class="muted">Cada video muestra una parte de la app en menos de un minuto, con voz y subtítulos.</p>
+    <div class="stack" id="tutList">${TUTORIALES.map((x) => `
+      <div class="tut${x.pronto ? " pronto" : ""}" data-id="${x.id}">
+        <button class="tut-cab" ${x.pronto ? "disabled" : ""} aria-expanded="false">
+          <span class="tut-n">${x.n}</span><span class="tut-t"><b>${esc(x.t)}</b><small>${esc(x.s)}${x.pronto ? " · pronto" : ` · ${x.dura}`}</small></span>
+          ${x.pronto ? "" : `<svg class="tut-play" aria-hidden="true"><use href="#i-play"/></svg>`}
+        </button>
+        <div class="tut-v" hidden></div>
+      </div>`).join("")}</div>`);
+  for (const b of document.querySelectorAll("#tutList .tut:not(.pronto) .tut-cab")) b.onclick = async () => {
+    const box = b.closest(".tut"), v = box.querySelector(".tut-v"), id = box.dataset.id;
+    // Solo un video abierto a la vez
+    for (const o of document.querySelectorAll("#tutList .tut-v:not([hidden])")) if (o !== v) { o.querySelector("video")?.pause(); o.hidden = true; o.previousElementSibling.setAttribute("aria-expanded", "false"); }
+    if (!v.hidden) { v.querySelector("video")?.pause(); v.hidden = true; b.setAttribute("aria-expanded", "false"); return; }
+    v.hidden = false; b.setAttribute("aria-expanded", "true");
+    if (v.querySelector("video")) { v.querySelector("video").play().catch(() => {}); return; }
+    v.innerHTML = `<p class="muted small">Cargando el video…</p>`;
+    const st = Sala.sb().storage.from("tutoriales");
+    const [mv, mp] = await Promise.all([st.createSignedUrl(`${id}.mp4`, 3600), st.createSignedUrl(`${id}.jpg`, 3600)]);
+    if (mv.error || !mv.data?.signedUrl) { v.innerHTML = err("No pude cargar el video. Revisa tu conexión e intenta de nuevo."); return; }
+    v.innerHTML = `<video controls playsinline preload="auto" ${mp.data?.signedUrl ? `poster="${esc(mp.data.signedUrl)}"` : ""} src="${esc(mv.data.signedUrl)}"></video>`;
+    v.querySelector("video").play().catch(() => {});
+  };
+}
 async function progress() {
   screen("Mi progreso", "Últimas 4 semanas", home);
   body(`<p class="muted">Cargando…</p>`);
@@ -1638,6 +1673,7 @@ document.addEventListener("DOMContentLoaded", () => {
   on("testBtn", testIntro);
   on("videoBtn", () => videoHome());
   on("progressBtn", progress);
+  on("tutBtn", tutorialsScreen);
   on("reminderBtn", reminderScreen);
   on("newSceneBtn", sceneHome);
   on("goalsBtn", goalsScreen);
