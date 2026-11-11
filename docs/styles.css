@@ -445,3 +445,11 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 /* Códigos técnicos de un error: plegados, para soporte; la persona ve el mensaje en palabras */
 .tecnico summary{min-height:44px;display:flex;align-items:center;color:var(--muted);font-size:.75rem;cursor:pointer}
 .tecnico p{margin:0 0 8px}
+/* Conversación de prueba sin cuenta (?prueba) */
+.prueba-aviso{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:10px 12px;border-radius:12px;border:1px solid var(--tip-line);background:var(--tip-bg);font-size:.88rem}
+.prueba-cierre{display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-top:16px;border-top:1px solid var(--line)}
+.prueba-cierre h2{margin:0}
+.prueba-cierre p{margin:0}
+a.wide{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;padding:0 14px}
+.prueba-cierre .linklike{align-self:center;min-height:44px}
+#loginForm a.linklike{align-self:center;min-height:44px;display:flex;align-items:center;text-align:center}

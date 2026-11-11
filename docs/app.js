@@ -59,6 +59,7 @@ function setState(st, caption) {
   $("#listoBtn").hidden = !(st === "hearing" || conPartes);
   if (conPartes) { $("#stateLabel").textContent = "Sigue o toca Listo"; $("#live").textContent = turno.partes.join(" "); }
   else if (st === "hearing" && modoManual()) $("#stateLabel").textContent = "Te escucho… toca Listo al terminar";
+  if (st === "listening" && S.pruebaFin && !S.pruebaCerrando) { S.pruebaCerrando = true; setTimeout(terminarPrueba, 900); }
 }
 // iPhone: con el teclado abierto la altura útil es la del viewport visual, no la de la pantalla
 function fitViewport() {
@@ -197,12 +198,17 @@ function configured() {
   return CFG && CFG.SUPABASE_URL && !CFG.SUPABASE_URL.includes("REEMPLAZAR") && CFG.SUPABASE_ANON_KEY && !CFG.SUPABASE_ANON_KEY.includes("REEMPLAZAR");
 }
 async function fnFetch(name, body, signal) {
-  const { data } = await sb.auth.getSession();
-  const token = data?.session?.access_token;
-  if (!token) throw { code: "no_session" };
+  let auth;
+  if (S.pruebaToken) auth = "Prueba " + S.pruebaToken;   // conversación de prueba sin cuenta
+  else {
+    const { data } = await sb.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) throw { code: "no_session" };
+    auth = "Bearer " + token;
+  }
   const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/${name}`, {
     method: body ? "POST" : "GET",
-    headers: { Authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+    headers: { Authorization: auth, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
     signal,
   });
@@ -217,6 +223,7 @@ async function azureToken(force = false) {
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
     if (j.error === "sin_horas") throw { code: "sin_horas", motivo: j.motivo };
+    if (j.error === "prueba_agotada") throw { code: "prueba_agotada" };
     throw { code: "azure_token", status: j.status || r.status };
   }
   const j = await r.json();
@@ -225,7 +232,7 @@ async function azureToken(force = false) {
   if (AZ.speechCfg) AZ.speechCfg.authorizationToken = AZ.token;
   return AZ.token;
 }
-setInterval(() => { if (S.session && AZ.token && Date.now() > AZ.exp - 60_000) azureToken(true).catch(() => {}); }, 30_000);
+setInterval(() => { if ((S.session || S.pruebaToken) && AZ.token && Date.now() > AZ.exp - 60_000) azureToken(true).catch(() => {}); }, 30_000);
 
 function makeSynth() {
   const cfg = SDK.SpeechConfig.fromAuthorizationToken(AZ.token, AZ.region);
@@ -728,13 +735,15 @@ async function userSaid(text, m = {}) {
   if (S.sesion) {
     S.sesion.turnos++; S.sesion.palabras_jose += countWords(text);
     if (S.sesion.turnos % 5 === 0) saveSessionNow();
+    if (S.prueba) pruebaTurno(S.sesion.turnos);
   }
   const bubble = addBubble("user", text);
   setState("thinking", "");
   const conf = m.speechEnd ? promedioConf() : null;   // escrito a mano no tiene confianza
   confTurno.length = 0;
   if (conf != null) (S.confs ||= []).push(Math.round(conf * 100) / 100);
-  correct(text, prev, bubble, conf);      // en paralelo, no bloquea la voz
+  S.corrPend = (S.corrPend || 0) + 1;
+  correct(text, prev, bubble, conf).finally(() => { S.corrPend--; });      // en paralelo, no bloquea la voz
   await characterTurn(gen);
 }
 
@@ -788,6 +797,7 @@ async function characterTurn(gen) {
     if (e?.name === "AbortError" || gen !== S.gen) return;
     const msg = e.code === "sin_horas" ? paseMsg(e.motivo) : {
       rate_limited: "Vas muy rápido: espera unos segundos.",
+      prueba_agotada: PRUEBA_AGOTADA,
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
       anthropic: "El personaje no respondió. Repite tu frase.",
       no_session: "Tu sesión venció. Vuelve a entrar.",
@@ -932,13 +942,14 @@ function showRecap(scene, ses, list, leave, hist = []) {
       ${last.length ? `<div class="rc-ctx"><b>Frase para mañana</b><span class="en">${esc(last[0].better)}</span></div>
         <h2>${scene.prep ? "Correcciones de tu inglés en el simulacro" : "Lo que más conviene repasar"}</h2>
         <div class="list">${last.map((c) => { const d = wordDiff(c.original, c.better); return `<div class="li"><span class="said">${d.said}</span><span class="fixed">${d.fixed}</span>${c.tip ? `<span class="meta">${esc(c.tip)}</span>` : ""}</div>`; }).join("")}</div>
-        <p class="muted small">Estas frases ya están en tu cuaderno de errores.</p>`
+        <p class="muted small">${S.prueba ? "Con tu acceso, estas frases quedan en tu cuaderno de errores y vuelven en tu repaso hasta que te salgan solas." : "Estas frases ya están en tu cuaderno de errores."}</p>`
       : list.failed ? `<p class="muted small">No pude revisar todas tus frases en esta práctica.</p>`
       : `<div class="proof good"><span class="ok">✓ Sin errores que corregir en esta práctica.</span></div>`}
+      ${S.prueba ? pruebaCierreHTML() : `
       ${scored ? `<button class="primary wide" id="rcAgain">Ensayar otra vez con este reto</button>` : ""}
       ${due ? `<button class="${scored ? "ghost" : "primary"} wide" id="rcReview">Repasar ahora · ${due} ${due === 1 ? "pendiente" : "pendientes"}</button>` : ""}
       ${scored ? "" : `<button class="ghost wide" id="rcAgain">Ensayar otra vez esta escena</button>`}
-      <button class="${scene.prep ? "primary" : "ghost"} wide" id="rcDone">${scene.prep ? "Ver cómo te vendiste" : scene.returnTo ? "Volver a la lección" : "Volver al inicio"}</button>`;
+      <button class="${scene.prep ? "primary" : "ghost"} wide" id="rcDone">${scene.prep ? "Ver cómo te vendiste" : scene.returnTo ? "Volver a la lección" : "Volver al inicio"}</button>`}`;
     const off = () => { S.recapRender = null; stopSpeaking(); };
     const rv = $("#rcReview"); if (rv) rv.onclick = () => {
       off();
@@ -950,8 +961,10 @@ function showRecap(scene, ses, list, leave, hist = []) {
     };
     const re = $("#rcEval"); if (re) re.onclick = evaluate;
     const m = $("#rcMejor"); if (m) m.onclick = () => speakEN(ev.v.mejor.mejor_en).catch(() => {});
-    $("#rcAgain").onclick = () => { off(); startScene(scene); };
-    $("#rcDone").onclick = () => { off(); leave(); };
+    $("#rcAgain").onclick = () => { off(); if (S.prueba) pruebaEscena(); else startScene(scene); };
+    const dn = $("#rcDone"); if (dn) dn.onclick = () => { off(); leave(); };
+    const en = $("#rcEntrar"); if (en) en.onclick = salirDePrueba;
+    const rs = $("#rcReservar"); if (rs) rs.onclick = () => trackPrueba("reservar");
   }
   S.recapRender = render;
   render();
@@ -1012,6 +1025,10 @@ function briefHTML(scene) {
     <ul>${RESCUE.map(([en, es]) => `<li><span class="en">${esc(en)}</span> <span class="muted small">${es}</span></li>`).join("")}</ul>
   </div>`;
 }
+// Conversación de prueba sin cuenta
+const PRUEBA_URL = new URLSearchParams(location.search).has("prueba");
+const PRUEBA_TURNOS = 5, PRUEBA_ESCENA = "recruiter", PRUEBA_NIVEL = "B1";
+const PRUEBA_AGOTADA = "Ya usaste la prueba gratis de hoy. Reserva tu cupo para seguir practicando.";
 const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófono para escucharte.";
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
@@ -1128,6 +1145,7 @@ function ojoClave(raiz) {
 function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
   if (e?.code === "sin_horas") notice(paseMsg(e.motivo));
+  else if (e?.code === "prueba_agotada") notice(PRUEBA_AGOTADA);
   else if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
   else notice("La voz no está disponible por ahora. Puedes escribir abajo.");
 }
@@ -1486,7 +1504,7 @@ function wire() {
       S.sesion.turnos++; S.sesion.palabras_jose += countWords(dicho);
     }
     pauseSession(""); const scene = S.scene, ses = S.sesion, list = S.corrections || [], from = scene?.returnTo, hist = S.history || []; S.scene = null; S.sesion = null; S.retry = null;
-    const leave = () => { if (from && window.Estudio) Estudio.reopen(from, ses?.turnos > 0); else { renderHome(); show("home"); } };
+    const leave = () => { if (S.prueba) return; if (from && window.Estudio) Estudio.reopen(from, ses?.turnos > 0); else { renderHome(); show("home"); } };
     if (scene && ses?.turnos > 0) showRecap(scene, ses, list, leave, hist); else leave();
   };
   $("#endBtn").onclick = () => $("#backBtn").click();   // termina la práctica y lleva al resumen
@@ -1585,9 +1603,12 @@ async function boot() {
   if (/type=(invite|recovery)/.test(enlace)) store.set("forzarClave", "nueva");
   if (/error_code=/.test(enlace)) { history.replaceState(null, "", location.pathname); setTimeout(() => { const e = $("#loginErr"); if (e) e.textContent = "Ese enlace ya no sirve. Escribe tu correo y toca «Olvidé mi contraseña» para recibir otro."; }, 300); }
   sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
-  if (window.Datos) { Datos.init(sb); Datos.onChange(() => { if (!$("#home").hidden) renderReviewCount(); }); }
   const { data } = await sb.auth.getSession();
   S.session = data.session;
+  // ?prueba: conversación de prueba sin cuenta. Quien ya tiene cuenta entra normal.
+  if (PRUEBA_URL && !S.session) { iniciarPrueba(); return; }
+  if (PRUEBA_URL) history.replaceState(null, "", location.pathname);
+  if (window.Datos) { Datos.init(sb); Datos.onChange(() => { if (!$("#home").hidden) renderReviewCount(); }); }
   sb.auth.onAuthStateChange((_ev, session) => {
     const fromLogin = !$("#login").hidden || !$("#splash").hidden;
     S.session = session;
@@ -1604,6 +1625,88 @@ async function boot() {
   // ?leccion=id viene de tocar una notificación con la app cerrada
   const lid = new URLSearchParams(location.search).get("leccion");
   if (lid) { history.replaceState(null, "", location.pathname); if (S.session && window.Estudio) Estudio.open(lid); }
+}
+/* ---------------- conversación de prueba sin cuenta ---------------- */
+// Entra desde la landing o desde el login con ?prueba. El servidor entrega un pase firmado (función espera)
+// que solo abre la conversación, la corrección, la voz y la evaluación final, con topes en la base (PRUEBA_TOPES).
+// No se crea cuenta y en el teléfono no se guarda nada: ni cuaderno ni sesiones. El pase vive en esta pestaña.
+async function iniciarPrueba() {
+  S.prueba = true;
+  document.body.classList.add("prueba");
+  if (window.Datos) { Datos.saveSession = () => {}; Datos.addFromCorrection = () => {}; }
+  show("splash");
+  let tok = null;
+  try { tok = sessionStorage.getItem("sala:prueba"); } catch {}
+  if (!tok) {
+    let j = {}, st = 0;
+    try {
+      const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evento: "prueba", donde: "inicio", sid: sidEmbudo(), utm: Object.fromEntries(new URLSearchParams(location.search)) }) });
+      st = r.status; j = await r.json().catch(() => ({}));
+    } catch {}
+    tok = j.token || null;
+    if (!tok) {
+      logDebug("prueba sin pase " + st + " " + (j.error || ""));
+      history.replaceState(null, "", location.pathname);
+      S.prueba = false; document.body.classList.remove("prueba");
+      show("login");
+      $("#loginErr").textContent = j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o reserva tu cupo." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+      return;
+    }
+    try { sessionStorage.setItem("sala:prueba", tok); } catch {}
+  }
+  S.pruebaToken = tok;
+  pruebaEscena();
+}
+function pruebaEscena() {
+  S.pruebaFin = false; S.pruebaCerrando = false;
+  const base = window.SCENES.find((s) => s.id === PRUEBA_ESCENA) || window.SCENES[0];
+  startScene({ ...base, nivel: PRUEBA_NIVEL });
+  $("#backBtn").textContent = "‹ Terminar";
+  $("#backBtn").setAttribute("aria-label", "Terminar la prueba");
+  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Responde en voz alta o escribe. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
+}
+function pruebaTurno(n) {
+  if (n === PRUEBA_TURNOS - 1) notice("Te queda una respuesta en esta prueba.");
+  if (n >= PRUEBA_TURNOS) S.pruebaFin = true;
+}
+// El personaje terminó de responder la última: se cierra la escena cuando llegue la última corrección (máx. 6 s)
+function terminarPrueba() {
+  if (!S.prueba || !S.scene) return;
+  try { vadNode?.pause(); } catch {}
+  setState("thinking", "Preparando tu evaluación…");
+  const t0 = Date.now();
+  const listo = () => {
+    if (!S.scene) return;
+    if (S.corrPend > 0 && Date.now() - t0 < 6000) { setTimeout(listo, 300); return; }
+    trackPrueba("fin");
+    $("#backBtn").click();
+  };
+  listo();
+}
+function pruebaCierreHTML() {
+  return `<div class="prueba-cierre">
+    <h2>Esto fue una sola escena</h2>
+    <p class="muted">Con tu acceso ensayas todas las etapas de la entrevista, preparas tus respuestas con lo que de verdad hiciste y tus errores vuelven en el repaso hasta que te salgan solos.</p>
+    <a class="primary wide" id="rcReservar" href="/entrevista/#reservar">Reservar mi cupo · hoy no se cobra nada</a>
+    <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
+    <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
+  </div>`;
+}
+function salirDePrueba() {
+  try { sessionStorage.removeItem("sala:prueba"); } catch {}
+  location.href = location.pathname;
+}
+function sidEmbudo() {
+  let sid = "";
+  try { sid = sessionStorage.getItem("espera:sid") || ""; if (!sid) { sid = crypto.randomUUID(); sessionStorage.setItem("espera:sid", sid); } } catch {}
+  return sid;
+}
+// Embudo de la landing (función espera): solo cuenta el sitio publicado
+function trackPrueba(donde) {
+  if (location.hostname !== "sala.lead10x.com.co") return;
+  fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+    body: JSON.stringify({ evento: "prueba", donde, sid: sidEmbudo(), utm: Object.fromEntries(new URLSearchParams(location.search)) }) }).catch(() => {});
 }
 // Lo mínimo que necesita el repaso (repaso.js) de este módulo
 async function ensureVoice() {

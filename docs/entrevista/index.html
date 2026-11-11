@@ -92,6 +92,7 @@
   .hero header{max-width:640px;padding:28px 0 40px}
   .hero .brand{color:#c3cccE}.hero .l10{color:#fff}.hero .brand .sep{background:rgba(255,255,255,.25)}
   .hero .entrar{border-color:#7fd8ec;color:#7fd8ec}
+  .probar{display:inline-block;margin:.9em 0 0;font-weight:700;text-decoration:underline;text-underline-offset:3px}
   .hero .lead{color:#d3dadc}.hero .note{color:#b8c2c5}.hero a{color:#7fd8ec}
   .hero-fondo{position:absolute;inset:0;z-index:-1;background:#0E1216}
   .hero-fondo img,.hero-fondo video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 30%}
@@ -131,6 +132,7 @@
     <h1>Prepara tu entrevista en inglés solo con lo que de verdad hiciste.</h1>
     <p class="lead">Un chat con IA te conversa. En Sala de Ensayo cada ensayo cuenta: guarda tus historias, te devuelve tus errores y te mide siempre con la misma vara, hasta que puedas ver que estás listo para tu entrevista en inglés. Y si te falta un dato, te lo pide: no inventa logros que no tienes.</p>
     <button class="cta" data-cta="hero">Quiero mi cupo · USD 15<small>50 cupos de fundador · hoy no se cobra nada</small></button>
+    <a class="probar" href="/?prueba">O pruébala ya: una entrevista de 5 respuestas, gratis y sin cuenta →</a>
     <p class="note">Primer grupo: apertura estimada en diciembre. Te escribimos antes de cobrarte. <a href="#dentro">Ver la app por dentro ↓</a></p>
   </header>
 </div>
@@ -368,6 +370,9 @@
   const enProduccion = location.hostname === "sala.lead10x.com.co";
   if (enProduccion) track("visita").catch(() => {});
   const dlg = document.getElementById("dlg");
+  // Llega desde el final de la prueba sin cuenta (#reservar): abre de una vez el formulario del cupo
+  const abrirCupo = () => { const b = document.querySelector("[data-cta]"); if (!b) return; b.dataset.cta = "prueba"; b.click(); b.dataset.cta = "hero"; };
+  if (location.hash === "#reservar") document.readyState === "complete" ? abrirCupo() : addEventListener("load", abrirCupo, { once: true });
   let ctaSent = false;
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
     if (!ctaSent && enProduccion) { ctaSent = true; track("cta", { donde: b.dataset.cta }).catch(() => {}); }
