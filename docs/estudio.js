@@ -436,7 +436,7 @@ async function videoHome(prefill) {
 async function renderLessonList() {
   let rows = localLessons();
   try {
-    const { data } = await Sala.sb().from("lecciones").select("id,titulo,auto:leccion->>titulo_es,video_id,nivel,tramo_min,creado,actualizado,progreso,tokens").order("creado", { ascending: false }).limit(40);
+    const { data } = await Sala.sb().from("lecciones").select("id,titulo,auto:leccion->>titulo_es,video_id,nivel,tramo_min,tramo_fin,creado,actualizado,progreso,tokens").order("creado", { ascending: false }).limit(40);
     if (data) {
       const ids = new Set(data.map((d) => d.id));
       const onlyLocal = rows.filter((r) => !ids.has(r.id));
@@ -463,7 +463,7 @@ async function renderLessonList() {
     <div class="lrow${tactil && r.estado !== "creando" ? " desliza" : ""}" data-id="${esc(r.id)}">
       ${tactil ? acciones(r) : ""}<button class="lesson lopen" data-id="${esc(r.id)}">${thumb(r)}
         <span class="ltxt"><b>${esc(r.titulo || "Lección")}</b>
-        <span class="meta">${esc(r.nivel)}${r.tramo_min ? ` · desde el min ${esc(r.tramo_min)}` : ""} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
+        <span class="meta">${esc(r.nivel)}${r.tramo_fin ? ` · min ${esc(r.tramo_min)}–${esc(Math.ceil(r.tramo_fin / 60))}` : r.tramo_min ? ` · desde el min ${esc(r.tramo_min)}` : ""} · ${estado(r)} · ${new Date(r.creado).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span></span></button>
       ${tactil ? "" : acciones(r)}
     </div>`).join("")
     + (tactil && rows.some((r) => r.estado !== "creando") && !store().get("pistaDeslizar", false) ? `<p class="muted small lpista">Desliza una lección a la izquierda para cambiarle el nombre o borrarla.</p>` : "")
@@ -647,27 +647,62 @@ function confirmGenerate(src, level) {
   const last = src.chunks[src.chunks.length - 1];
   const dur = last ? last.t + last.d : 0;
   const lv = level || Sala.level();
-  const todo = ventana(src.chunks, 0), long = todo.fin < dur - 5, maxMin = last ? Math.floor(last.t / 60) : 0;
+  const todo = ventana(src.chunks, 0), long = todo.fin < dur - 5, elegir = dur > 180;
   status(`<div class="rc-ctx"><b>Transcripción lista</b>
       <span>${mmss(dur)} min · ${words} palabras${src.fuente === "pegada" && !src.videoId ? " · sin video: los audios los leerá la voz de la app" : ""}</span></div>
-    ${long ? `<div class="stack"><label for="vDesde">Empezar desde el minuto</label><input id="vDesde" type="number" inputmode="numeric" min="0" max="${maxMin}" step="1" value="0"></div><div class="notice" data-kind="warn" id="vNota" role="status"></div>` : ""}
+    ${elegir ? `<fieldset class="tramo"><legend>¿Qué parte quieres estudiar?</legend>
+      <div class="tramo-row">
+        <label>Desde<input id="vDesde" type="text" inputmode="decimal" autocomplete="off" placeholder="0:00"></label>
+        <label>Hasta<input id="vHasta" type="text" inputmode="decimal" autocomplete="off" placeholder="${long ? "opcional" : mmss(dur)}"></label>
+      </div>
+      <p class="muted small">Escribe minutos y segundos, como en YouTube: 30:15 (o 30.15). Hasta ${MAX_PARTE / 60} minutos por lección.</p>
+    </fieldset><div class="notice" data-kind="warn" id="vNota" role="status"></div>` : ""}
     <button class="primary wide" id="vGen">Crear lección para nivel ${lv}</button>
     <p class="muted small">Tarda cerca de 1 minuto. Te aviso con una notificación cuando esté lista.</p>`);
-  let elegida = todo;
-  if (long) {
+  let elegida = todo, exacto = false;
+  if (elegir) {
     const pintar = () => {
-      const m = Math.min(maxMin, Math.max(0, parseInt($("#vDesde").value, 10) || 0));
-      elegida = ventana(src.chunks, m * 60);
-      const poco = elegida.palabras < 40;
-      $("#vGen").disabled = poco;
-      $("#vNota").innerHTML = poco ? "Desde ese minuto queda muy poco texto. Elige un minuto anterior."
-        : `<b>Video largo.</b> Cada lección toma hasta 25 minutos. Esta usará del minuto ${mmss(elegida.ini)} al ${mmss(elegida.fin)}, y de ahí elegirá unos 10 minutos para estudiar. Para estudiar otra parte, crea otra lección desde ese minuto.`;
+      const tD = $("#vDesde").value.trim(), tH = $("#vHasta").value.trim();
+      const d = tD ? leerTiempo(tD) : 0, hh = tH ? leerTiempo(tH) : null;
+      const mal = (m) => { $("#vGen").disabled = true; $("#vNota").innerHTML = m; };
+      $("#vGen").disabled = false;
+      if (d === null || hh === null && tH) return mal("Escribe el tiempo como minutos:segundos, por ejemplo 30:15.");
+      if (d >= dur - 10) return mal(`El video dura ${mmss(dur)}. Elige un inicio anterior.`);
+      if (hh === null) {
+        // solo el inicio: la app escoge unos 10 minutos dentro de los 25 que siguen (como antes)
+        exacto = false; elegida = ventana(src.chunks, d);
+        if (elegida.palabras < 40) return mal("Desde ahí queda muy poco texto. Elige un inicio anterior.");
+        $("#vNota").innerHTML = !tD && !long ? `Si no eliges, la app escoge la parte más útil para ti (unos 10 minutos).`
+          : `${long ? "<b>Video largo.</b> " : ""}Sin «Hasta», la app toma del ${mmss(elegida.ini)} al ${mmss(elegida.fin)} y ahí escoge unos 10 minutos. Escribe «Hasta» para estudiar exactamente tu parte.`;
+        return;
+      }
+      const h = Math.min(hh, dur);
+      if (h <= d) return mal("«Hasta» debe ser después de «Desde».");
+      if (h - d < 60) return mal("Elige al menos 1 minuto.");
+      if (h - d > MAX_PARTE) return mal(`Elegiste ${durTexto(h - d)}. El máximo es ${MAX_PARTE / 60} minutos: con más, la lección pierde calidad. Acorta la parte o divídela en dos lecciones.`);
+      exacto = true;
+      const ch = src.chunks.filter((c) => c.t + c.d > d + 0.5 && c.t < h - 0.5);
+      elegida = { chunks: ch, ini: ch.length ? ch[0].t : d, fin: ch.length ? ch[ch.length - 1].t + ch[ch.length - 1].d : h, palabras: ch.reduce((a, c) => a + c.text.split(/\s+/).length, 0) };
+      if (elegida.palabras < 40) return mal("En esa parte casi no hay texto. Elige otra.");
+      $("#vNota").innerHTML = `Vas a estudiar exactamente del <b>${mmss(elegida.ini)}</b> al <b>${mmss(elegida.fin)}</b> (dura ${durTexto(elegida.fin - elegida.ini)}).`;
     };
-    $("#vDesde").oninput = pintar;
+    $("#vDesde").oninput = pintar; $("#vHasta").oninput = pintar;
     pintar();
   }
-  on("vGen", () => { askPush(); generate({ ...src, chunks: elegida.chunks }, lv); });
+  on("vGen", () => { askPush(); generate({ ...src, chunks: elegida.chunks, exacto }, lv); });
 }
+// Parte elegida a mano: tope de 12 min (cada pregunta, frase y ejercicio sale de ahí; con más, se diluye)
+const MAX_PARTE = 720;
+// «30» = minuto 30 · «30:15», «30.15» o «30,15» = 30 min 15 s · «1:05:30» = 1 h 5 min 30 s. null si no se entiende.
+function leerTiempo(s) {
+  const p = s.replace(/\s/g, "").split(/[:.,]/);
+  if (!p.length || p.length > 3 || p.some((x) => !/^\d{1,3}$/.test(x))) return null;
+  const n = p.map(Number);
+  if (n.length === 1) return n[0] * 60;
+  if (n[n.length - 1] > 59 || (n.length === 3 && n[1] > 59)) return null;
+  return n.length === 2 ? n[0] * 60 + n[1] : n[0] * 3600 + n[1] * 60 + n[2];
+}
+function durTexto(seg) { const m = Math.floor(seg / 60), s = Math.round(seg % 60); return m ? `${m} min${s ? ` ${s} s` : ""}` : `${s} s`; }
 /* ---------- notificaciones push ---------- */
 // iOS solo permite pedir el permiso tocando un botón y con la app instalada en la pantalla de inicio.
 function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!window.SALA_CONFIG?.VAPID_PUBLIC_KEY; }
@@ -707,7 +742,7 @@ async function generate(src, level) {
   let j;
   try {
     const ctl = new AbortController(); const kill = setTimeout(() => ctl.abort(), 30_000);
-    const r = await Sala.fnFetch("generar", { modo: "leccion", level: lv, title: src.title || "", chunks: src.chunks, video_id: src.videoId || null, fuente: src.fuente }, ctl.signal);
+    const r = await Sala.fnFetch("generar", { modo: "leccion", level: lv, title: src.title || "", chunks: src.chunks, video_id: src.videoId || null, fuente: src.fuente, exacto: !!src.exacto }, ctl.signal);
     j = await r.json();
     clearTimeout(kill);
     if (!r.ok || !j?.id) throw j || {};

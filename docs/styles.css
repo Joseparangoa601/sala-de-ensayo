@@ -29,6 +29,13 @@ button{cursor:pointer;min-height:44px}
 /* El ancho de lectura va en el relleno, no en el bloque: así la barra de desplazamiento queda en el borde de la ventana */
 .pad{padding:20px max(16px,calc((100% - 608px)/2));width:100%;overflow-y:auto}
 .stack{display:flex;flex-direction:column;gap:12px}
+/* Elegir la parte del video: dos campos que se ven editables (borde visible, no como el recuadro de datos) */
+.tramo{border:1px solid var(--line);border-radius:12px;padding:10px 12px 12px;margin:0;display:flex;flex-direction:column;gap:8px}
+.tramo legend{font-weight:600;padding:0 4px}
+.tramo-row{display:flex;gap:10px}
+.tramo-row label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:.9rem;color:var(--muted)}
+.tramo-row input{border:1.5px solid var(--muted);font-size:1.1rem;font-family:var(--mono);color:var(--ink)}
+.tramo-row input:focus{border-color:var(--accent)}
 h1{font:400 2rem/1.05 "Anton",Bahnschrift,"Arial Narrow",var(--font);margin:0;letter-spacing:.012em;text-transform:uppercase}
 .muted{color:var(--muted);margin:0}
 .err{color:var(--del);min-height:1.4em;margin:0}
