@@ -380,7 +380,8 @@ body.con-pase #prepBtn{background:var(--action);color:var(--action-ink);border-c
 body.con-pase #prepBtn .ic{background:rgba(20,20,20,.12);color:inherit}
 body.con-pase #prepBtn b{font-size:1.1rem}
 body.con-pase #prepBtn small{color:inherit;opacity:.9}
-body.con-pase #hoyScenes,body.con-pase #goalsNudge{display:none!important}
+/* Con pase, «Otras conversaciones» sí muestra sus tarjetas: el título sin nada debajo dejaba Hoy vacío a quien empieza */
+body.con-pase #goalsNudge{display:none!important}
 body.con-pase .ti.next{background:var(--surface);color:inherit;border-color:var(--line)}
 body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 
