@@ -75,6 +75,22 @@
   .sticky .cta{max-width:704px;margin:0 auto;padding:12px}
   @media (min-width:900px){.sticky{display:none}}
   @media (max-width:899px){body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}}
+  /* Hero oscuro con video de fondo (misma técnica que lead10x.com.co): primero el poster, el video después del load */
+  .hero{position:relative;isolation:isolate;background:#0E1216;color:#EFF3F3;overflow:hidden}
+  .hero .wrap{max-width:1120px}
+  .hero header{max-width:640px;padding:28px 0 40px}
+  .hero .brand{color:#c3cccE}.hero .l10{color:#fff}.hero .brand .sep{background:rgba(255,255,255,.25)}
+  .hero .entrar{border-color:#7fd8ec;color:#7fd8ec}
+  .hero .lead{color:#d3dadc}.hero .note{color:#b8c2c5}.hero a{color:#7fd8ec}
+  .hero-fondo{position:absolute;inset:0;z-index:-1;background:#0E1216}
+  .hero-fondo img,.hero-fondo video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+  .hero-fondo video{opacity:0;transition:opacity .9s}
+  .hero-fondo video.corre{opacity:1}
+  .hero-fondo::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(14,18,22,.95) 0%,rgba(14,18,22,.88) 40%,rgba(14,18,22,.5) 64%,rgba(14,18,22,.18) 100%),linear-gradient(0deg,rgba(14,18,22,.6) 0%,rgba(14,18,22,0) 28%)}
+  @media (max-width:860px){
+    .hero-fondo img,.hero-fondo video{object-position:50% 22%}
+    .hero-fondo::after{background:linear-gradient(rgba(14,18,22,.7) 0%,rgba(14,18,22,.6) 45%,rgba(14,18,22,.84) 100%)}
+  }
   footer{color:var(--muted);font-size:.85rem;padding:30px 0 44px}
   a{color:var(--accent)}
   dialog{border:0;border-radius:16px;padding:0;max-width:440px;width:calc(100% - 32px);background:var(--surface);color:var(--ink)}
@@ -91,9 +107,14 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mark" viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="8" fill="currentColor"/><path d="M9 20.5 L15 11 L18.5 16 L23 9.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9.5" r="2.3" fill="#fff"/></symbol></svg>
+<!-- 1 · EL DESPUÉS (en quién se convierte), no el producto. Fondo: video de ambiente (comercial/hero_portada.py);
+     las personas no usan la app ni se presentan como usuarias. -->
+<section class="hero">
+  <div class="hero-fondo" aria-hidden="true">
+    <picture><source media="(max-width:860px)" srcset="video/portada_movil.webp?v=1" type="image/webp"><source srcset="video/portada_escritorio.webp?v=1" type="image/webp"><img src="video/portada_movil.jpg?v=1" alt="" fetchpriority="high"></picture>
+    <video data-video="fondo" data-escritorio="video/portada_escritorio" data-movil="video/portada_movil" data-v="1" muted loop playsinline preload="none" disablepictureinpicture tabindex="-1"></video>
+  </div>
 <div class="wrap">
-
-  <!-- 1 · EL DESPUÉS (en quién se convierte), no el producto -->
   <header>
     <div class="brand"><a class="l10" href="https://lead10x.com.co/" target="_blank" rel="noopener" aria-label="lead10x"><svg><use href="#mark"/></svg><b>LEAD10X</b></a><span class="sep"></span><span>Sala de Ensayo · Entrevista</span><a class="entrar" href="https://sala.lead10x.com.co/">Entrar a la app</a></div>
     <h1>Prepara tu entrevista en inglés solo con lo que de verdad hiciste.</h1>
@@ -101,6 +122,9 @@
     <button class="cta" data-cta="hero">Quiero mi cupo · USD 15<small>50 cupos de fundador · hoy no se cobra nada</small></button>
     <p class="note">Primer grupo: apertura estimada en diciembre. Te escribimos antes de cobrarte. <a href="#dentro">Ver la app por dentro ↓</a></p>
   </header>
+</div>
+</section>
+<div class="wrap">
 
   <!-- 2 · ANTES → DESPUÉS (el cambio de estado que compra la persona) -->
   <h2>De esto, a esto</h2>
@@ -302,6 +326,24 @@
 </dialog>
 
 <script>
+  // Video de fondo del hero: después del load y en un momento libre; nada con «menos movimiento» o ahorro de datos.
+  // Se pausa fuera de pantalla. Si el WebM falla, sigue con el MP4.
+  (() => {
+    const v = document.querySelector('video[data-video="fondo"]');
+    const quieto = matchMedia("(prefers-reduced-motion: reduce)").matches, ahorro = navigator.connection && navigator.connection.saveData;
+    if (!v || quieto || ahorro) return;
+    const arrancar = () => {
+      const base = v.dataset[matchMedia("(max-width:860px)").matches ? "movil" : "escritorio"], q = "?v=" + v.dataset.v;
+      if (v.canPlayType('video/webm; codecs="vp9"')) { const s = document.createElement("source"); s.src = base + ".webm" + q; s.type = "video/webm"; v.appendChild(s); }
+      const m = document.createElement("source"); m.src = base + ".mp4" + q; m.type = "video/mp4"; v.appendChild(m);
+      v.addEventListener("error", () => { const w = v.querySelector('source[type="video/webm"]'); if (w && /\.webm/.test(v.currentSrc)) { w.remove(); v.load(); v.play().catch(() => {}); } }, true);
+      v.addEventListener("playing", () => v.classList.add("corre"));
+      v.muted = true; v.load(); v.play().catch(() => {});
+      if ("IntersectionObserver" in window) new IntersectionObserver((e) => { e[0].isIntersecting ? v.play().catch(() => {}) : v.pause(); }).observe(v.parentNode);
+    };
+    const despues = () => ("requestIdleCallback" in window) ? requestIdleCallback(arrancar, { timeout: 1500 }) : setTimeout(arrancar, 200);
+    document.readyState === "complete" ? despues() : addEventListener("load", despues);
+  })();
   // Embudo: visita → toque del botón con precio → correo con autorización. Sin cookies: un id que vive solo en esta pestaña (recargar no cuenta como otra visita).
   const ENDPOINT = "https://srdpcfpqdapdaydhdbjs.supabase.co/functions/v1/espera";
   const utm = Object.fromEntries(new URLSearchParams(location.search));
