@@ -1086,7 +1086,7 @@ function openScene() {
   addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
 }
-const paseMsg = (motivo) => motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.";
+const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
 // Respuestas del servidor por pase o por tope diario, en palabras de la persona (null si no es ninguno de los dos)
 function limiteMsg(j) {
   if (j?.error === "sin_horas" || j?.code === "sin_horas") return paseMsg(j.motivo);
@@ -1100,26 +1100,54 @@ function marcarPase(hay) {
   $("#masTitulo").textContent = hay ? "Otras conversaciones" : "Practica también";
   if (!hay) $("#paseHoy").hidden = true;
 }
-// Muestra lo que queda del pase en Tú y en Hoy. Sin fila no hay tope y no se muestra nada.
+// Enlace de pago de Hotmart para comprar otro pase. Vacío hasta que José lo configure: entonces se ofrece escribir al correo.
+const COMPRA_URL = "";
+const AVISO_DIAS = 3, AVISO_SEG = 1800;   // avisar antes de que se acabe: 3 días o 30 minutos de voz
+// Días de calendario hasta la fecha (0 = hoy, 1 = mañana): «vence en 2 días» debe coincidir con la fecha que se muestra
+const diasHasta = (iso, ahora = Date.now()) => { const d = new Date(iso), h = new Date(ahora); return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(h.getFullYear(), h.getMonth(), h.getDate())) / 864e5); };
+const cuandoVence = (dias) => dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias} días`;
+const durVoz = (seg) => { const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60); return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`; };
+// Estado del pase en palabras: lo usan la tarjeta de Tú y el aviso de Hoy
+function estadoPase(p, ahora = Date.now()) {
+  const seg = Math.max(0, p.segundos_total - p.segundos_usados);
+  const vence = Date.parse(p.vence), dias = diasHasta(p.vence, ahora);
+  const fin = new Date(p.vence).toLocaleDateString("es", { day: "numeric", month: "long" });
+  if (p.activo === false) return { fin: true, corto: "Tu pase ya no está activo", hoy: "Tu pase ya no está activo. No se cobró nada más." };
+  if (ahora >= vence) return { fin: true, corto: `Terminó el ${fin}`, hoy: `Tu pase terminó el ${fin}. No se cobró nada más.` };
+  if (!seg) return { fin: true, corto: "Usaste todas tus horas", hoy: "Usaste todas las horas de voz de tu pase. No se cobró nada más." };
+  const corto = `Te quedan ${durVoz(seg)} de voz · hasta el ${fin}`;
+  if (dias <= AVISO_DIAS) return { alerta: true, corto, hoy: `Tu pase vence ${cuandoVence(dias)} y te quedan ${durVoz(seg)} de voz. No se renueva solo.` };
+  if (seg <= AVISO_SEG) return { alerta: true, corto, hoy: `Te quedan ${durVoz(seg)} de voz en tu pase (hasta el ${fin}).` };
+  return { corto, hoy: corto };
+}
+// Muestra el pase en Tú (tarjeta con el detalle) y en Hoy (una línea; avisa antes de que se acabe). Sin fila no hay tope y no se muestra nada.
 async function paintPase() {
   const tile = $("#paseTile");
   if (!tile || !S.session) return;
   try {
-    const { data, error } = await sb.from("pases").select("segundos_total,segundos_usados,vence").maybeSingle();
+    const { data, error } = await sb.from("pases").select("segundos_total,segundos_usados,vence,activo").maybeSingle();
     if (error) throw error;
     S.pase = data || null;
     store.set("conPase", !!data);
     marcarPase(!!data);
     renderToday();
-    if (!data) { tile.style.display = "none"; return; }
-    const seg = Math.max(0, data.segundos_total - data.segundos_usados), h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60);
-    const fin = new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "short" });
-    const texto = Date.now() >= Date.parse(data.vence) ? "Tu pase ya venció" : `Te quedan ${h ? h + " h " : ""}${m} min de voz · hasta el ${fin}`;
-    $("#paseNow").textContent = texto;
-    $("#paseHoy").textContent = texto;
-    $("#paseHoy").hidden = false;
-    tile.style.display = "";
-  } catch { tile.style.display = "none"; }
+    if (!data) { tile.hidden = true; return; }
+    const e = estadoPase(data), seg = Math.max(0, data.segundos_total - data.segundos_usados);
+    const usado = Math.min(1, data.segundos_usados / data.segundos_total);
+    $("#paseNow").textContent = e.corto;
+    $("#paseHoras").innerHTML = `<b>${durVoz(seg)}</b> de voz de ${durVoz(data.segundos_total)} en total`;
+    $("#paseBarra i").style.width = Math.round(usado * 100) + "%";
+    $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus horas de voz`);
+    $("#paseVence").textContent = e.fin ? e.hoy : `Vence el ${new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "long" })} (${cuandoVence(diasHasta(data.vence))}).`;
+    $("#paseComprar").hidden = !COMPRA_URL; if (COMPRA_URL) $("#paseComprar").href = COMPRA_URL;
+    $("#paseMas").hidden = !!COMPRA_URL;
+    const hoy = $("#paseHoy");
+    hoy.textContent = e.hoy;
+    hoy.classList.toggle("alerta", !!(e.alerta || e.fin));
+    hoy.hidden = false;
+    tile.hidden = false;
+    if (e.alerta || e.fin) tile.open = true;   // cuando hay algo que decidir, el detalle ya está a la vista
+  } catch { tile.hidden = true; }
 }
 // Botón para ver u ocultar lo escrito en los campos de contraseña
 function ojoClave(raiz) {
@@ -1584,6 +1612,7 @@ function wire() {
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
   $("#goalsBtn").onclick = () => window.Estudio?.goals();
+  $("#paseHoy").onclick = () => { document.querySelector('.tabbar [data-tab="tu"]').click(); const t = $("#paseTile"); t.open = true; t.scrollIntoView({ block: "center" }); };
   $("#goalsNudgeBtn").onclick = () => window.Estudio?.goals();
   for (const b of document.querySelectorAll("#levelNudge [data-lv]")) b.onclick = () => { setLevel(b.dataset.lv); renderHome(); };
   $("#levelTest").onclick = () => window.Estudio?.test();

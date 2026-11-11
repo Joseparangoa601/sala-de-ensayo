@@ -453,3 +453,10 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 a.wide{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;padding:0 14px}
 .prueba-cierre .linklike{align-self:center;min-height:44px}
 #loginForm a.linklike{align-self:center;min-height:44px;display:flex;align-items:center;text-align:center}
+
+/* Tu pase: detalle en Tú y aviso en Hoy */
+.pase-det p{margin:0}
+.pase-barra{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.pase-barra i{display:block;height:100%;width:0;background:var(--action);border-radius:4px}
+.pase-hoy{background:none;border:0;padding:0;text-align:left;font:inherit;color:var(--muted);font-size:.85rem;align-self:flex-start;cursor:pointer}
+.pase-hoy.alerta{padding:10px 12px;border-radius:10px;border:1px solid var(--tip-line);background:var(--tip-bg);color:inherit;align-self:stretch}
