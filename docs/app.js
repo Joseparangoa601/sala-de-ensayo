@@ -1562,7 +1562,7 @@ function wire() {
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
     // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente", "pistaDeslizar", "tradLineas", "pistaTraducir"]) localStorage.removeItem("sala:" + k);
+    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente", "pistaDeslizar", "tradLineas", "pistaTraducir", "nivelSinSubir"]) localStorage.removeItem("sala:" + k);
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
@@ -1628,7 +1628,8 @@ function speakEN(text, opts = {}) {
   enNow = now_;
   return now_.promise;
 }
-function setLevel(l) { S.level = l; store.set("level", l); }
+// desdeCuenta: el nivel llegó del servidor; no se vuelve a subir
+function setLevel(l, desdeCuenta = false) { S.level = l; store.set("level", l); if (!desdeCuenta) window.Estudio?.guardarNivel(l); }
 // Tarjeta «Tu nivel» en Tú: cambiarlo sin hacer el test
 const NIVEL_NOMBRE = { A1: "Principiante", A2: "Básico", B1: "Intermedio", B2: "Intermedio alto", C1: "Avanzado", C2: "Casi nativo" };
 function paintNivel() {

@@ -1285,7 +1285,7 @@ let pushRestored = false;
 // Trae objetivos y escenas del servidor; sube las escenas viejas que solo vivían en este teléfono
 async function syncPerfil() {
   try {
-    const { data, error: e0 } = await Sala.sb().from("perfil").select("objetivos,escenas,recordatorio").maybeSingle();
+    const { data, error: e0 } = await Sala.sb().from("perfil").select("objetivos,escenas,recordatorio,nivel").maybeSingle();
     if (e0) throw e0;
     store().set("recordatorio", data?.recordatorio || {});
     let escenas = data?.escenas || [];
@@ -1306,14 +1306,25 @@ async function syncPerfil() {
     store().set("objetivos", data?.objetivos || {});
     store().set("myScenes", escenas);
     store().set("perfilSynced", true);
-    // Tras cerrar y volver a entrar: el nivel se recupera del último test y este teléfono vuelve a recibir los avisos
-    if (localStorage.getItem("sala:level") === null) {
+    // Nivel: el de la cuenta manda (igual en todos los dispositivos), salvo un cambio hecho aquí que no alcanzó a subir.
+    // Cuentas sin nivel guardado: se sube el que se eligió en este equipo o, si no hay, el del último test.
+    const local = localStorage.getItem("sala:level") !== null ? Sala.level() : null;
+    if (store().get("nivelSinSubir", false) && local) guardarNivel(local);
+    else if (data?.nivel) { if (data.nivel !== local) Sala.setLevel(data.nivel, true); }
+    else if (local) guardarNivel(local);
+    else {
       const { data: t } = await Sala.sb().from("test_intentos").select("nivel").not("fin", "is", null).order("fin", { ascending: false }).limit(1).maybeSingle();
       if (t?.nivel) Sala.setLevel(t.nivel);
     }
     if (!pushRestored && data?.recordatorio?.activo && typeof Notification !== "undefined" && Notification.permission === "granted") { pushRestored = true; askPush(); }
     if (!$("#home").hidden) Sala.backHome();
   } catch (e) { console.warn("perfil", e); }
+}
+// Sube el nivel a la cuenta; si no hay conexión queda marcado y se reintenta en la próxima sincronización
+async function guardarNivel(nivel) {
+  store().set("nivelSinSubir", true);
+  try { const { error } = await Sala.sb().from("perfil").upsert({ nivel }, { onConflict: "user_id" }); if (!error) store().set("nivelSinSubir", false); else console.warn("nivel", error); }
+  catch (e) { console.warn("nivel", e); }
 }
 async function savePerfil(patch) {
   const { error } = await Sala.sb().from("perfil").upsert(patch, { onConflict: "user_id" });
@@ -1639,5 +1650,5 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (!document.getElementById("talk").hidden) { Sala.notice("Tu lección está lista. Ábrela en «Aprender con un video» cuando termines esta práctica.", "info"); return; }
   openLesson(e.data.abrirLeccion);
 });
-window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
+window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, guardarNivel, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
 })();
