@@ -231,17 +231,14 @@ textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:1
 .ldel .linklike{align-self:flex-start;min-height:44px;background:none;border:0;padding:0;color:var(--del);text-decoration:underline}
 .ldanger{background:#b4443a;color:#fff;border:0;border-radius:12px;font-weight:600}
 .scene.static{cursor:default}
-.sbar{display:flex;justify-content:flex-end;margin:-6px 0 -8px}
-.linkbtn{background:none;border:0;color:var(--accent);font-weight:600;font-size:.95rem;min-height:44px;padding:0 4px}
-.linkbtn.on{font-weight:700}
-.srow{display:flex;align-items:center;gap:8px}
+.srow{display:flex;align-items:center;gap:2px}
 .srow .scene{flex:1;min-width:0}
 .srow.oculta .scene{opacity:.5}
 .srow.editing{flex-direction:column;align-items:stretch;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
-.shint{margin:0}
-#scenes.editando .scene{cursor:default}
+.sacc{flex:none;display:flex;justify-content:flex-end;align-items:center;min-width:92px}
+.srow .smostrar{flex:none;min-height:44px}
+#verOcultas{min-height:44px;padding:0}
 .sbtn{flex:none;min-height:44px;min-width:84px;padding:0 14px;border-radius:12px;font-weight:600;border:1px solid var(--line);background:var(--surface);color:inherit}
-.srow.editar .sa-borrar{color:#b4443a;border-color:color-mix(in srgb,#b4443a 45%,var(--line))}
 /* Deslizar (solo táctil): las acciones esperan detrás de la fila, a la derecha (escenas y lecciones) */
 .desliza{position:relative;touch-action:pan-y;overflow:hidden}
 .srow.desliza{border-radius:14px}

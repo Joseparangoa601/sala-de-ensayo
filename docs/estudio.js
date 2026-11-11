@@ -1247,6 +1247,14 @@ async function deleteScene(id) {
   await savePerfil({ escenas: myScenes().filter((x) => x.id !== id) });
   if (s) Sala.olvidarEscena(id, [s.title].filter(Boolean));
 }
+// Cambia el nombre de una escena propia; el reto pendiente (guardado por título) sigue a la escena
+async function renameScene(id, titulo) {
+  const s = myScenes().find((x) => x.id === id);
+  if (!s) return;
+  await savePerfil({ escenas: myScenes().map((x) => (x.id === id ? { ...x, title: titulo } : x)) });
+  const retos = store().get("retos", {});
+  if (s.title in retos) { retos[titulo] = retos[s.title]; delete retos[s.title]; store().set("retos", retos); }
+}
 // Tope de 16 escenas: nunca se borra ninguna sin decir cuáles y sin un «sí» explícito
 function confirmDrop(anchor, titles, onYes) {
   anchor.parentNode.querySelector(".scene-limit")?.remove();
@@ -1551,5 +1559,5 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (!document.getElementById("talk").hidden) { Sala.notice("Tu lección está lista. Ábrela en «Aprender con un video» cuando termines esta práctica.", "info"); return; }
   openLesson(e.data.abrirLeccion);
 });
-window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, _parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
+window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML };
 })();

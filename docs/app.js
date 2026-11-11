@@ -1219,10 +1219,12 @@ function allScenes() { return [...store.get("myScenes", []), ...store.get("custo
 // Las de fábrica son iguales para todos: no se borran, se ocultan en este equipo y se pueden volver a mostrar.
 const ocultas = () => new Set(store.get("escenasOcultas", []));
 function visibleScenes() { const o = ocultas(); return allScenes().filter((s) => !o.has(s.id)); }
-// Conversar: la lista va limpia. Borrar/ocultar se hace en «Editar» (todos) o deslizando la tarjeta (pantallas táctiles).
-let editando = false;
+// Conversar funciona igual que Tus lecciones: en celular se desliza la tarjeta (Editar y Borrar las propias, Ocultar las de fábrica);
+// en computador esas acciones van como íconos al lado. Las ocultas se recuperan con «Mostrar ocultas (N)» al final de la lista.
+let verOcultas = false;
 const tactil = matchMedia("(pointer: coarse)").matches;
-const ETQ = { borrar: "Borrar", ocultar: "Ocultar", mostrar: "Mostrar" };
+const ETQ = { editar: "Editar", borrar: "Borrar", ocultar: "Ocultar", mostrar: "Mostrar" };
+const ICO = { editar: "pen", borrar: "trash", ocultar: "hide" };
 // Deslizar (escenas en Conversar y Tus lecciones): la fila .desliza tiene detrás .sfondo con las acciones y delante el contenido.
 function cerrarDeslizadas(salvo) {
   for (const r of document.querySelectorAll(".desliza.abierta")) if (r !== salvo) { r.classList.remove("abierta"); if (r._dz) r._dz.style.transform = ""; }
@@ -1269,34 +1271,40 @@ function renderHome() {
       <span class="d">${esc(s.desc)}</span></span>
     </button>`;
   const propias = new Set(store.get("myScenes", []).map((s) => s.id)), fabrica = new Set(window.SCENES.map((s) => s.id)), o = ocultas();
-  const accionDe = (s) => (propias.has(s.id) ? "borrar" : !fabrica.has(s.id) ? null : o.has(s.id) ? "mostrar" : "ocultar");
-  const boton = (a, s) => `<button class="sbtn sa-${a}" data-a="${a}" aria-label="${ETQ[a]} la escena ${esc(s.title)}">${ETQ[a]}</button>`;
+  const accionesDe = (s) => (propias.has(s.id) ? ["editar", "borrar"] : !fabrica.has(s.id) ? [] : o.has(s.id) ? ["mostrar"] : ["ocultar"]);
+  const texto = (a, s) => `<button class="sbtn sa-${a}" data-a="${a}" aria-label="${ETQ[a]} la escena ${esc(s.title)}">${ETQ[a]}</button>`;
+  const icono = (a, s) => (a === "mostrar"
+    ? `<button class="ghost smostrar" data-a="mostrar" aria-label="Volver a mostrar ${esc(s.title)}">Mostrar</button>`
+    : `<button class="lpen${a === "borrar" ? " lbin" : ""}" data-a="${a}" aria-label="${ETQ[a]} la escena ${esc(s.title)}" title="${ETQ[a]}">${icon(ICO[a])}</button>`);
   const fila = (s) => {
-    const a = accionDe(s);
-    if (editando) return `<div class="srow editar${o.has(s.id) ? " oculta" : ""}" data-id="${esc(s.id)}">${card(s)}${a ? boton(a, s) : ""}</div>`;
-    const desliza = tactil && a;
-    return `<div class="srow${desliza ? " desliza" : ""}" data-id="${esc(s.id)}">${desliza ? `<div class="sfondo">${boton(a, s)}</div>` : ""}${card(s)}</div>`;
+    const acc = accionesDe(s), oculta = o.has(s.id);
+    const desliza = tactil && acc.length && !oculta;   // una oculta muestra «Mostrar» a la vista, también en celular
+    return `<div class="srow${desliza ? " desliza" : ""}${oculta ? " oculta" : ""}" data-id="${esc(s.id)}">`
+      + (desliza ? `<div class="sfondo">${acc.map((a) => texto(a, s)).join("")}</div>` : "")
+      + card(s) + (desliza || !acc.length ? "" : `<div class="sacc">${acc.map((a) => icono(a, s)).join("")}</div>`) + `</div>`;
   };
-  const visibles = visibleScenes(), lista = editando ? [...visibles, ...allScenes().filter((s) => o.has(s.id))] : visibles;
-  $("#scenes").classList.toggle("editando", editando);
-  $("#scenes").innerHTML = (editando ? `<p class="muted small shint">Borra tus escenas u oculta las que trae la app. Las ocultas quedan al final.</p>` : "")
-    + (lista.length ? lista.map(fila).join("") : `<p class="muted small">${o.size ? "Ocultaste todas las escenas. Toca «Editar» para volver a mostrarlas." : "No tienes escenas. Crea una con «+ Crea tu escena»."}</p>`);
-  const ed = $("#editScenes");
-  ed.textContent = editando ? "Listo" : "Editar"; ed.className = "linkbtn" + (editando ? " on" : "");
-  ed.setAttribute("aria-pressed", String(editando));
+  const visibles = visibleScenes(), escondidas = allScenes().filter((s) => o.has(s.id));
+  if (!escondidas.length) verOcultas = false;
+  const lista = verOcultas ? [...visibles, ...escondidas] : visibles;
+  $("#scenes").innerHTML = (tactil && visibles.some((s) => accionesDe(s).length) && !store.get("pistaDeslizar", false) ? `<p class="muted small lpista">Desliza una escena a la izquierda para editarla, borrarla u ocultarla.</p>` : "")
+    + (lista.length ? lista.map(fila).join("") : `<p class="muted small">${escondidas.length ? "Ocultaste todas las escenas." : "No tienes escenas. Crea una con «+ Crea tu escena»."}</p>`)
+    + (escondidas.length ? `<button class="linklike" id="verOcultas">${verOcultas ? "Esconder las ocultas" : `Mostrar ocultas (${escondidas.length})`}</button>` : "");
+  $("#verOcultas") && ($("#verOcultas").onclick = () => { verOcultas = !verOcultas; renderHome(); });
   for (const b of $("#scenes").querySelectorAll("[data-a]")) b.onclick = () => {
     const row = b.closest(".srow"), id = row.dataset.id, s = allScenes().find((x) => x.id === id);
     if (b.dataset.a === "ocultar") { store.set("escenasOcultas", [...ocultas(), id]); renderHome(); }
     else if (b.dataset.a === "mostrar") { store.set("escenasOcultas", [...ocultas()].filter((x) => x !== id)); renderHome(); }
+    else if (b.dataset.a === "editar") renombrarEscena(row, s);
     else confirmarBorrarEscena(row, s);
   };
-  for (const r of $("#scenes").querySelectorAll(".srow.desliza")) deslizable(r);
+  // Usar el gesto una vez (aquí o en Tus lecciones) basta para aprenderlo: la pista ya no vuelve
+  for (const r of $("#scenes").querySelectorAll(".srow.desliza")) deslizable(r, ".scene", () => { store.set("pistaDeslizar", true); $("#scenes .lpista")?.remove(); });
   const dayId = sceneOfDay()?.id;
   $("#hoyScenes").innerHTML = visibleScenes().filter((s) => s.id !== dayId).slice(0, 3).map(card).join("");
   for (const b of document.querySelectorAll(".scene[data-id]")) b.onclick = () => {
     const row = b.closest("#scenes .srow");
-    if (row && (editando || row.dataset.recien)) return;                         // editando, o recién soltaste un deslizamiento
-    if (row?.classList.contains("abierta")) { cerrarDeslizadas(); return; }     // con la acción a la vista, tocar la cierra
+    if (row?.dataset.recien) return;                                             // recién soltaste un deslizamiento
+    if (row?.classList.contains("abierta")) { cerrarDeslizadas(); return; }     // con las acciones a la vista, tocar las cierra
     startScene(allScenes().find((s) => s.id === b.dataset.id));
   };
   $("#levelSel").value = S.level;
@@ -1314,6 +1322,28 @@ function renderHome() {
   renderReviewCount();
   renderReminder();
   refreshToday();
+}
+// Cambiar el nombre de una escena propia (se guarda en el perfil: vale en todos tus equipos)
+function renombrarEscena(row, s) {
+  row.className = "srow editing";
+  row.innerHTML = `<input class="lname" maxlength="80" value="${esc(s.title)}" aria-label="Nombre de la escena">
+    <div class="lname-btns"><button class="primary" data-b="si">Guardar</button><button class="ghost" data-b="no">Cancelar</button></div>
+    <p class="small lname-err" role="alert"></p>`;
+  const inp = row.querySelector("input"), si = row.querySelector('[data-b="si"]');
+  inp.focus();
+  row.querySelector('[data-b="no"]').onclick = () => renderHome();
+  const guardar = async () => {
+    const t = inp.value.trim();
+    if (!t) { row.querySelector(".lname-err").textContent = "Escribe un nombre."; return; }
+    if (t === s.title) return renderHome();
+    si.disabled = true;
+    try { await Estudio.renombrarEscena(s.id, t); } catch {
+      si.disabled = false; row.querySelector(".lname-err").textContent = "No se pudo guardar. Revisa tu conexión e intenta de nuevo."; return;
+    }
+    renderHome();
+  };
+  si.onclick = guardar;
+  inp.onkeydown = (e) => { if (e.key === "Enter") guardar(); else if (e.key === "Escape") renderHome(); };
 }
 // Borrar una escena propia la quita del perfil (todos tus equipos). Lo que ya practicaste con ella se queda.
 function confirmarBorrarEscena(row, s) {
@@ -1418,13 +1448,11 @@ function renderVoicePicker() {
 }
 
 function wire() {
-  $("#editScenes").onclick = () => { editando = !editando; renderHome(); };
   $("#allScenes").onclick = () => document.querySelector('.tabbar [data-tab="conversar"]').click();
   for (const b of document.querySelectorAll(".tabbar button")) b.onclick = () => {
     for (const x of document.querySelectorAll(".tabbar button")) { if (x === b) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current"); }
     for (const t of document.querySelectorAll(".tabpanel")) t.hidden = t.dataset.tab !== b.dataset.tab;
     $("#homeBody").scrollTop = 0;
-    if (editando) { editando = false; renderHome(); }   // al cambiar de pestaña se sale de Editar
     cerrarDeslizadas();
   };
   $("#forgotBtn").onclick = async () => {
