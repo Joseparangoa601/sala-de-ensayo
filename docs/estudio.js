@@ -831,7 +831,8 @@ function playRange(a, b, { rate = 1, text = "" } = {}) {
   if (YTP && ytReady) {
     try { YTP.setPlaybackRate(rate); } catch {}
     YTP.seekTo(a, true); YTP.playVideo();
-    rangeTimer = setInterval(() => { try { if (YTP.getCurrentTime() >= b) { YTP.pauseVideo(); stopRange(); } } catch {} }, 150);
+    // Se revisa cada 50 ms: con 150 ms se colaba el arranque de la frase siguiente
+    rangeTimer = setInterval(() => { try { if (YTP.getCurrentTime() >= b) { YTP.pauseVideo(); stopRange(); } } catch {} }, 50);
     // iPhone puede exigir el primer toque dentro del propio video: si a los 3 s no arrancó, se avisa
     hintTimer = setTimeout(() => {
       let st; try { st = YTP?.getPlayerState(); } catch {}
@@ -910,7 +911,7 @@ function playTramo(rate = 1) { playRange(LS.L.tramo.inicio, LS.L.tramo.fin, { ra
 // La parte del video que trabaja la lección, dicha siempre igual en todos los pasos
 function parteVideo() {
   const { inicio, fin } = LS.L.tramo;
-  return { rango: `del minuto ${mmss(inicio)} al ${mmss(fin)}`, dura: mmss(fin - inicio), mira: LS.row.video_id ? "Mira" : "Escucha", ver: LS.row.video_id ? "Ver" : "Escuchar" };
+  return { rango: `del minuto ${mmss(inicio)} al ${mmss(fin)}`, dura: (() => { const s = Math.round(fin - inicio), m = Math.floor(s / 60), r = s % 60; return m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`; })(), mira: LS.row.video_id ? "Mira" : "Escucha", ver: LS.row.video_id ? "Ver" : "Escuchar" };
 }
 
 function exprHTML(e, i) {
@@ -971,7 +972,7 @@ function step2() {
   sb_(`
     <p><b>${pv.mira} esta parte sin leer nada: ${pv.rango}.</b> Busca solo la idea general; no te detengas en palabras sueltas.</p>
     <ol class="ul">${g.map((q) => `<li><span>${esc(q.q_en)}</span><br><span class="small muted">${esc(q.q_es)}</span></li>`).join("")}</ol>
-    <button class="primary wide" id="pPlay">${IC.play}${pv.ver} esta parte (${pv.dura})</button>
+    <button class="primary wide" id="pPlay">${IC.play}${pv.ver} esta parte · dura ${pv.dura}</button>
     <button class="ghost wide" id="pAns">Mostrar respuestas</button>
     <div id="ans" hidden>${g.map((q, i) => `<div class="rc-ctx"><b>Pregunta ${i + 1}</b><span>${esc(q.respuesta_es)}</span></div>`).join("")}</div>
     ${selfRate("comprension_inicial", "¿Cuánto entendiste en esta primera vez?")}
@@ -1013,7 +1014,7 @@ function step3() {
     ${nextBtn(4)}`);
   on("cPlay", () => playTramo(1));
   on("cSlow", () => playTramo(0.75));
-  for (const b of document.querySelectorAll(".tline")) b.onclick = () => { const c = lines[Number(b.dataset.i)]; playRange(c.t, c.t + c.d + 0.3, { text: c.text }); };
+  for (const b of document.querySelectorAll(".tline")) b.onclick = () => { const c = lines[Number(b.dataset.i)]; playRange(c.t, c.t + c.d - 0.08, { text: c.text }); };   // termina donde empieza la siguiente, nunca después
   // Si la persona está moviendo la lista, el video no se la arrebata durante 4 s
   const wrap = $("#studyWrap");
   let userScrollAt = 0;
@@ -1128,7 +1129,7 @@ function step5() {
   sb_(`
     <p><b>${pv.mira} otra vez la misma parte, sin texto: ${pv.rango}.</b> Compara con la primera vez.</p>
     <div class="rc-ctx"><b>Para pensar</b><span>${esc(LS.L.reflexion_es)}</span></div>
-    <button class="primary wide" id="fPlay">${IC.play}${pv.ver} esta parte (${pv.dura})</button>
+    <button class="primary wide" id="fPlay">${IC.play}${pv.ver} esta parte · dura ${pv.dura}</button>
     ${selfRate("comprension_final", "¿Cuánto entendiste ahora?")}
     <div id="gain"></div>
     ${nextBtn(6)}`);
