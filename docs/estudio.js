@@ -457,7 +457,8 @@ function renderResult({ nivel, rango, perfil, ev }) {
       <div class="li"><span>${esc(b.pregunta)}</span>${b.tipo === "escucha" ? `<span class="small muted">Audio: “${esc(b.audio_en)}”</span>` : ""}
       <span class="ins">${esc(b.opciones[b.correcta])}</span><span class="meta">${esc(b.explicacion_es)}</span></div>`).join("")}</div></details>` : ""}
     <p class="muted small">Estimación con ${[T.resp.length ? `${T.resp.length} preguntas` : "", ev ? (T.oral.filter(Boolean).length === 1 ? "1 respuesta oral" : `${T.oral.filter(Boolean).length} respuestas orales`) : ""].filter(Boolean).join(" y ")}. No es una certificación; compárala con el EF SET para calibrar.</p>
-    <button class="ghost wide" id="tHome">Volver al inicio</button>`);
+    ${despuesTest ? `<button class="primary wide" id="tMed">Seguir: la llamada de medición (${nivel})</button>` : `<button class="ghost wide" id="tHome">Volver al inicio</button>`}`);
+  on("tMed", () => despuesTest?.(nivel));
   on("tUse", () => { Sala.setLevel(nivel); $("#tUse").outerHTML = `<p class="ok">✓ Listo: tus conversaciones y lecciones usan ${nivel}.</p>`; });
   on("tHome", home);
 }
@@ -1751,16 +1752,119 @@ function passwordScreen(forced = false) {
     } catch (e) { show(e?.msg || "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo."); b.disabled = false; b.textContent = "Guardar contraseña"; }
   });
 }
+/* =====================================================================
+   MIDE TU AVANCE: punto de partida y día 30 con la misma prueba
+   Test de nivel + una llamada fija de 5 preguntas (siempre las mismas, al mismo nivel).
+   Todo sale de lo que ya se guarda: test_intentos y sesiones (evaluación y pronunciación).
+   ===================================================================== */
+const MED_TITULO = "Medición · llamada con la reclutadora";
+const MED_DIAS = 25;          // la segunda medición se abre a los 25 días (el pase dura 30)
+const MED_TEST_DIAS = 3;      // un test hecho hasta 3 días antes cuenta para esa medición
+const MED_ESCENA = (nivel) => ({
+  id: "medicion", medicion: true, turnosMax: 5, nivel, returnTo: { kind: "medicion" },
+  title: MED_TITULO, name: "Sarah Collins", who: "Reclutadora · medición",
+  desc: "Cinco preguntas, siempre las mismas y al mismo nivel: así se compara tu punto de partida con tu día 30.",
+  voice: "en-US-EmmaMultilingualNeural",
+  persona: `Sarah Collins, talent acquisition specialist at a U.S. company that hires remote professionals in Latin America. This is a short, structured phone screen used to measure the candidate's progress, so it must be identical every time.
+Ask exactly these questions, in this order, one per turn. Before each question, acknowledge the previous answer in a few words, without opinions or coaching. Never ask follow-up questions, never change or add questions:
+- After the first answer: "Why are you interested in this position?"
+- After the second answer: "Tell me about a project you're proud of. What was your part, and what was the result?"
+- After the third answer: "Tell me about a time you had a problem at work. What did you do?"
+- After the fourth answer: "When could you start, and what salary range are you looking for?"
+- After the fifth answer: thank them and say goodbye in one sentence. Ask nothing else.`,
+  open: "Hi, this is Sarah from the recruiting team. Thanks for making time today. Let's start: tell me a little about yourself and your current role.",
+});
+const fechaCorta = (iso) => new Date(iso).toLocaleDateString("es", { day: "numeric", month: "short" });
+const CRIT = [["objetivo", "Lograste el objetivo"], ["desarrollo", "Desarrollaste tus respuestas"], ["precision", "Inglés correcto"], ["naturalidad", "Sonó natural"]];
+let despuesTest = null;   // al terminar el test, la medición sigue con la llamada
+
+async function datosMedicion() {
+  const sb = Sala.sb();
+  const [ses, tests] = await Promise.all([
+    sb.from("sesiones").select("id,inicio,evaluacion,tokens,turnos,palabras_jose").eq("escena", MED_TITULO).not("evaluacion", "is", null).order("inicio", { ascending: true }),
+    sb.from("test_intentos").select("fin,nivel,perfil").not("fin", "is", null).order("fin", { ascending: true }),
+  ]);
+  if (ses.error || tests.error) throw ses.error || tests.error;
+  const lista = ses.data || [], ts = tests.data || [];
+  const testDe = (iso) => {   // el test más cercano antes de la llamada (hasta 3 días) o el mismo día después
+    const t = Date.parse(iso);
+    return ts.filter((x) => { const f = Date.parse(x.fin); return f <= t + 864e5 && f >= t - MED_TEST_DIAS * 864e5; }).pop() || null;
+  };
+  const partida = lista[0] || null;
+  const final = partida ? lista.filter((s) => Date.parse(s.inicio) - Date.parse(partida.inicio) >= MED_DIAS * 864e5).pop() || null : null;
+  const testReciente = ts.filter((x) => Date.now() - Date.parse(x.fin) <= MED_TEST_DIAS * 864e5).pop() || null;
+  return { partida: partida && { ...partida, test: testDe(partida.inicio) }, final: final && { ...final, test: testDe(final.inicio) }, testReciente };
+}
+function resumenMed(m) {
+  const ev = m.evaluacion || {}, pr = m.tokens?.pron || null;
+  return {
+    nivel: m.test?.nivel || null, habla: m.test?.perfil?.habla || null, puntaje: ev.puntaje ?? null,
+    crit: Object.fromEntries(CRIT.map(([k]) => [k, Number(ev.criterios?.[k]?.nota) || null])),
+    pron: pr?.exactitud ?? null, debiles: (pr?.debiles || []).map(([p]) => p).slice(0, 3),
+    palabras: m.turnos ? Math.round((m.palabras_jose || 0) / m.turnos) : null,
+  };
+}
+async function medicionScreen() {
+  screen("Mide tu avance", "Punto de partida y día 30", home);
+  body(`<div class="spinner"></div>`);
+  try { await window.Datos?.sync(); } catch {}   // la llamada recién hecha puede estar aún en la cola
+  let d;
+  try { d = await datosMedicion(); } catch { body(err("No pude cargar tu medición (¿sin conexión?).")); return; }
+  const p = d.partida && resumenMed(d.partida), f = d.final && resumenMed(d.final);
+  const abre = d.partida ? new Date(Date.parse(d.partida.inicio) + MED_DIAS * 864e5) : null;
+  const pasos = `<ol class="steps-list"><li><b>Test de nivel</b> · unos 15 minutos.${d.testReciente ? ` Ya tienes uno del ${fechaCorta(d.testReciente.fin)}: lo usamos.` : ""}</li><li><b>Llamada con la reclutadora</b> · 5 preguntas, siempre las mismas. Al final ves tu evaluación.</li></ol>`;
+  if (!p) {
+    body(`<p>Antes de empezar a practicar, mide de dónde partes. En ${MED_DIAS} días repites exactamente la misma prueba y ves cuánto avanzaste, con números.</p>
+      ${pasos}
+      <p class="muted small">Habla como lo harías en una entrevista real. La medición vale por el primer intento: no se repite en el momento.</p>
+      <button class="primary wide" id="mGo">Medir mi punto de partida</button>`);
+    on("mGo", () => empezarMedicion(d, null));
+    return;
+  }
+  const listo = !f && Date.now() >= abre.getTime();
+  body(`${tablaMed(p, f, d)}
+    ${f ? `<p class="muted small">Partida del ${fechaCorta(d.partida.inicio)} · día 30 del ${fechaCorta(d.final.inicio)}. Misma llamada, mismas preguntas, mismo nivel (${esc(d.partida.tokens?.nivel_escena || "")}).</p>`
+      : listo ? `<div class="notice" data-kind="info"><b>Ya puedes medir tu avance.</b> Es la misma prueba de tu punto de partida.</div>${pasos}<button class="primary wide" id="mGo">Medir mi avance</button>`
+      : `<p class="muted">La segunda medición se abre el <b>${abre.toLocaleDateString("es", { day: "numeric", month: "long" })}</b>. Mientras tanto, practica: conversaciones, repaso y modo entrevista.</p>`}`);
+  on("mGo", () => empezarMedicion(d, d.partida.tokens?.nivel_escena || null));
+}
+function tablaMed(p, f, d) {
+  const fila = (lbl, a, b, fmt = (x) => x ?? "–", mejor = (x, y) => y > x) => {
+    const sube = f && a != null && b != null && a !== b ? (mejor(a, b) ? "sube" : "baja") : "";
+    return `<tr><th scope="row">${lbl}</th><td>${esc(String(fmt(a)))}</td>${f ? `<td class="${sube}">${esc(String(fmt(b)))}${sube === "sube" ? " ▲" : sube === "baja" ? " ▼" : ""}</td>` : ""}</tr>`;
+  };
+  const NV = ["A1", "A2", "B1", "B2", "C1", "C2"], nv = (x, y) => NV.indexOf(y) > NV.indexOf(x);
+  return `<div class="tabla-med"><table>
+    <thead><tr><th></th><th>Partida<small>${fechaCorta(d.partida.inicio)}</small></th>${f ? `<th>Día 30<small>${fechaCorta(d.final.inicio)}</small></th>` : ""}</tr></thead>
+    <tbody>
+      ${fila("Nivel del test", p.nivel, f?.nivel, undefined, nv)}
+      ${fila("Al hablar (test)", p.habla, f?.habla, undefined, nv)}
+      ${fila("Puntaje de la llamada", p.puntaje, f?.puntaje, (x) => (x == null ? "–" : `${x}/100`))}
+      ${CRIT.map(([k, l]) => fila(l, p.crit[k], f?.crit[k], (x) => (x == null ? "–" : `${x}/5`))).join("")}
+      ${fila("Pronunciación (exactitud)", p.pron, f?.pron, (x) => (x == null ? "–" : `${x}/100`))}
+      ${fila("Palabras por respuesta", p.palabras, f?.palabras)}
+      ${fila("Sonidos más débiles", p.debiles.length ? p.debiles.map((x) => `/${x}/`).join(" ") : null, f ? (f.debiles.length ? f.debiles.map((x) => `/${x}/`).join(" ") : null) : null, undefined, () => false)}
+    </tbody></table></div>
+    <p class="muted small">El puntaje y los criterios los da la misma evaluación de siempre; la pronunciación la mide Azure en la llamada. No es una certificación.</p>`;
+}
+function empezarMedicion(d, nivelFijo) {
+  const llamada = (nivel) => Sala.startScene(MED_ESCENA(nivelFijo || nivel || Sala.level()));
+  if (d.testReciente) { llamada(d.testReciente.nivel); return; }
+  despuesTest = (nivel) => { despuesTest = null; llamada(nivel); };
+  testIntro();
+}
 function reopen(from, practiced) {
   if (from?.kind === "prep" && window.Prep) { leave(); Prep.afterSim(); return; }
+  if (from?.kind === "medicion") { medicionScreen(); return; }
   if (from?.kind !== "lesson") { home(); return; }
   openLesson(from.id, 6).then(() => { if (practiced && LS?.row?.id === from.id) saveProgress({ paso: 6, conversada: true }); });
 }
 document.addEventListener("DOMContentLoaded", () => {
   on("studyBack", () => { if (onBack) { const f = onBack; f(); } else home(); });
-  on("testBtn", testIntro);
+  on("testBtn", () => { despuesTest = null; testIntro(); });
   on("videoBtn", () => videoHome());
   on("progressBtn", progress);
+  on("medirBtn", medicionScreen);
   on("tutBtn", tutorialsScreen);
   on("reminderBtn", reminderScreen);
   on("newSceneBtn", sceneHome);

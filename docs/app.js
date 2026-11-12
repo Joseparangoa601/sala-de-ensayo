@@ -750,7 +750,7 @@ async function userSaid(text, m = {}) {
   if (S.sesion) {
     S.sesion.turnos++; S.sesion.palabras_jose += countWords(text);
     if (S.sesion.turnos % 5 === 0) saveSessionNow();
-    if (S.prueba) pruebaTurno(S.sesion.turnos);
+    if (S.prueba || S.scene?.turnosMax) pruebaTurno(S.sesion.turnos);   // prueba sin cuenta y medición: número fijo de respuestas
   }
   const bubble = addBubble("user", text);
   const pw = m.speechEnd ? (S.pronTurno || []).splice(0) : [];   // escrito a mano no tiene audio
@@ -973,7 +973,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
       ${scored ? `<button class="primary wide" id="rcAgain">Ensayar otra vez con este reto</button>` : ""}
       ${due ? `<button class="${scored ? "ghost" : "primary"} wide" id="rcReview">Repasar ahora · ${due} ${due === 1 ? "pendiente" : "pendientes"}</button>` : ""}
       ${scored ? "" : `<button class="ghost wide" id="rcAgain">Ensayar otra vez esta escena</button>`}
-      <button class="${scene.prep ? "primary" : "ghost"} wide" id="rcDone">${scene.prep ? "Ver cómo te vendiste" : scene.returnTo ? "Volver a la lección" : "Volver al inicio"}</button>`}`;
+      <button class="${scene.prep || scene.medicion ? "primary" : "ghost"} wide" id="rcDone">${scene.prep ? "Ver cómo te vendiste" : scene.medicion ? "Ver mi medición" : scene.returnTo ? "Volver a la lección" : "Volver al inicio"}</button>`}`;
     const off = () => { S.recapRender = null; stopSpeaking(); };
     const rv = $("#rcReview"); if (rv) rv.onclick = () => {
       off();
@@ -989,6 +989,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
     const dn = $("#rcDone"); if (dn) dn.onclick = () => { off(); leave(); };
     const en = $("#rcEntrar"); if (en) en.onclick = salirDePrueba;
     const rs = $("#rcReservar"); if (rs) rs.onclick = () => trackPrueba("reservar");
+    if (scene.medicion) $("#rcAgain")?.remove();   // la medición vale por el primer intento: no se repite en el momento
   }
   S.recapRender = render;
   render();
@@ -1057,7 +1058,7 @@ const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófon
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
   coachQ.length = 0;
-  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.pronTurno = []; S.pronSesion = []; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
+  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.pronTurno = []; S.pronSesion = []; S.pruebaFin = false; S.pruebaCerrando = false; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
   turno.partes = []; turno.cerrando = false; turno.segmento = null;
   $("#log").innerHTML = briefHTML(scene);
   $("#sceneName").textContent = scene.title;
@@ -1720,19 +1721,20 @@ function pruebaEscena() {
   $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Responde en voz alta o escribe. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
 }
 function pruebaTurno(n) {
-  if (n === PRUEBA_TURNOS - 1) notice("Te queda una respuesta en esta prueba.");
-  if (n >= PRUEBA_TURNOS) S.pruebaFin = true;
+  const max = S.scene?.turnosMax || PRUEBA_TURNOS;
+  if (n === max - 1) notice(S.prueba ? "Te queda una respuesta en esta prueba." : "Te queda una respuesta en esta medición.");
+  if (n >= max) S.pruebaFin = true;
 }
 // El personaje terminó de responder la última: se cierra la escena cuando llegue la última corrección (máx. 6 s)
 function terminarPrueba() {
-  if (!S.prueba || !S.scene) return;
+  if (!(S.prueba || S.scene?.turnosMax) || !S.scene) return;
   try { vadNode?.pause(); } catch {}
   setState("thinking", "Preparando tu evaluación…");
   const t0 = Date.now();
   const listo = () => {
     if (!S.scene) return;
     if (S.corrPend > 0 && Date.now() - t0 < 6000) { setTimeout(listo, 300); return; }
-    trackPrueba("fin");
+    if (S.prueba) trackPrueba("fin");
     $("#backBtn").click();
   };
   listo();
