@@ -1257,21 +1257,27 @@ function step3() {
   on("elIr", () => modoElegir(true));
   on("elSalir", () => modoElegir(false));
   const orden = () => [...elegidas].sort((a, b) => a - b);
-  // Se guarda como frase elegida (origen «manual»); si ya pediste su traducción, va con ella
-  function guardar(ids) {
-    const trad = store().get(CLAVE, {})[lid] || {};
+  // Se guarda como frase elegida (origen «manual») con lo que quiere decir en español: es la pista del repaso
+  async function guardar(ids) {
+    const nuevas_ = ids.filter((i) => !Datos.has(lines[i].text));
+    // La primera sola deja lista la caché de instrucciones del modelo; las demás, en paralelo, la leen (≈ 3 veces más barato)
+    const [pri, ...resto] = nuevas_;
+    const es = pri == null ? [] : [await traducir(pri).catch(() => null), ...(await Promise.all(resto.map((i) => traducir(i).catch(() => null))))];
+    const trad = Object.fromEntries(nuevas_.map((i, k) => [i, es[k]]));
     let nuevas = 0, ya = 0;
     for (const i of ids) {
       const c = lines[i];
-      const row = Datos.addCard({ origen: "manual", escena: LS.row.titulo, correcta: c.text, tip: trad[c.text] || null, contexto: null, leccion_id: LS.row.id });
+      const row = Datos.addCard({ origen: "manual", escena: LS.row.titulo, correcta: c.text, tip: trad[i] || null, contexto: null, leccion_id: LS.row.id });
       if (row) nuevas++; else ya++;
       const b = document.querySelector(`.tline[data-i="${i}"]`);
       if (b && !b.querySelector(".el-ya")) b.insertAdjacentHTML("beforeend", ` <span class="el-ya" title="Ya está en tu repaso">✓</span>`);
     }
     return `${nuevas ? `${nuevas === 1 ? "1 frase guardada" : `${nuevas} frases guardadas`} en tu repaso` : ""}${nuevas && ya ? " · " : ""}${ya ? `${ya === 1 ? "1 ya estaba" : `${ya} ya estaban`}` : ""}.`;
   }
-  on("elGuardar", () => {
-    const msg = guardar(orden());
+  on("elGuardar", async () => {
+    const b = $("#elGuardar"); b.disabled = $("#elPract").disabled = true; b.textContent = "Guardando…";
+    const msg = await guardar(orden());
+    b.textContent = "Guardar en mi repaso";
     modoElegir(false);
     $("#elMsg")?.remove();
     $("#elFin").insertAdjacentHTML("afterbegin", `<p class="ok small" id="elMsg" role="status">${esc(msg)}</p>`);
@@ -1297,11 +1303,26 @@ function step3() {
     on("shGo", () => shadow({ texto: c.text, inicio: c.t, fin }));
     on("epPrev", () => practicar(ids, k - 1));
     on("epNext", () => practicar(ids, k + 1));
-    on("epGuardar", () => { const msg = guardar(ids); const b = $("#epGuardar"); b.textContent = "✓ " + msg; b.disabled = true; });
+    on("epGuardar", async () => { const b = $("#epGuardar"); b.disabled = true; b.textContent = "Guardando…"; const msg = await guardar(ids); if (b.isConnected) b.textContent = "✓ " + msg; });
     on("epVolver", () => { stopRec(); stopVideo(); Sala.stopAudio(); panel.hidden = true; panel.innerHTML = ""; $("#tr").hidden = false; modoElegir(true); });
   }
   // Una sola traducción a la vista: abrir otra cierra la anterior; tocar la traducción (o volver a pedir la misma) la cierra
   const CLAVE = "tradLineas", lid = LS.row.id;
+  // Traduce una línea con su contexto (las 4 anteriores) y la guarda en este equipo; si ya estaba, no llama
+  async function traducir(i) {
+    const texto = lines[i].text, ya = (store().get(CLAVE, {})[lid] || {})[texto];
+    if (ya) return ya;
+    const contexto = lines.slice(Math.max(0, i - 4), i).map((c) => ({ role: "assistant", content: c.text }));
+    const r = await Sala.fnFetch("generar", { modo: "traducir", texto, escena: `Video: ${LS.row.titulo || ""}`.slice(0, 200), contexto });
+    const j = await r.json();
+    if (!r.ok || !j.es) throw j;
+    window.__usoTraduccion?.push(j.usage);   // solo para medir el costo en pruebas
+    const todo = store().get(CLAVE, {});
+    todo[lid] = { ...(todo[lid] || {}), [texto]: j.es };
+    const ids = Object.keys(todo); if (ids.length > 30) delete todo[ids[0]];   // solo las 30 lecciones más recientes
+    store().set(CLAVE, todo);
+    return j.es;
+  }
   async function traducirLinea(i) {
     const abierta = $("#tr .tl-es");
     if (abierta) { const misma = Number(abierta.dataset.i) === i; abierta.remove(); if (misma) return; }
@@ -1310,19 +1331,12 @@ function step3() {
     const p = document.createElement("p"); p.className = "tl-es"; p.lang = "es"; p.dataset.i = i; p.setAttribute("role", "status");
     p.onclick = () => p.remove();
     row.after(p);
-    const cache = store().get(CLAVE, {}), mio = cache[lid] || {}, texto = lines[i].text;
-    if (mio[texto]) { p.textContent = mio[texto]; return; }
+    const texto = lines[i].text, ya = (store().get(CLAVE, {})[lid] || {})[texto];
+    if (ya) { p.textContent = ya; return; }
     p.textContent = "Traduciendo…"; p.classList.add("cargando");
     try {
-      const contexto = lines.slice(Math.max(0, i - 4), i).map((c) => ({ role: "assistant", content: c.text }));
-      const r = await Sala.fnFetch("generar", { modo: "traducir", texto, escena: `Video: ${LS.row.titulo || ""}`.slice(0, 200), contexto });
-      const j = await r.json();
-      if (!r.ok || !j.es) throw j;
-      const todo = store().get(CLAVE, {});
-      todo[lid] = { ...(todo[lid] || {}), [texto]: j.es };
-      const ids = Object.keys(todo); if (ids.length > 30) delete todo[ids[0]];   // solo las 30 lecciones más recientes
-      store().set(CLAVE, todo);
-      if (p.isConnected) { p.textContent = j.es; p.classList.remove("cargando"); }
+      const es = await traducir(i);
+      if (p.isConnected) { p.textContent = es; p.classList.remove("cargando"); }
     } catch (e) {
       if (p.isConnected) { p.textContent = Sala.limiteMsg(e) || "No se pudo traducir. Revisa tu conexión e intenta de nuevo."; p.classList.remove("cargando"); p.classList.add("error"); }
     }
