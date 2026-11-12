@@ -474,3 +474,7 @@ a.wide{display:flex;align-items:center;justify-content:center;text-align:center;
 .tabla-med thead small{display:block;font-weight:400}
 .tabla-med tbody th{font-weight:600}
 .tabla-med td.sube{color:var(--ins);font-weight:600}.tabla-med td.baja{color:var(--del)}
+.comparar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.comparar button{min-width:0}
+.comparar .lento,.comparar:not(:has(#shYo)) button{grid-column:1/-1}
+.sonido button.oir{min-height:0;background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}

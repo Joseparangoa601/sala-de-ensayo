@@ -50,23 +50,40 @@ function keepAwake() {
 
 /* ---------------- micrófono + Azure: reconocimiento con evaluación de pronunciación ---------------- */
 let rec = null, recGen = 0;
-function stopRec() { recGen++; closeRec(); }
+/* La toma del estudiante para compararla con el modelo. Vive solo en la memoria de esta pantalla:
+   no se sube ni se guarda, y se borra al cambiar de frase, de paso o de pantalla. */
+let miToma = null, miAudio = null;
+function pararToma() { try { miAudio?.pause(); } catch {} miAudio = null; }
+function soltarToma() { pararToma(); if (miToma) { try { URL.revokeObjectURL(miToma); } catch {} miToma = null; } }
+function stopRec() { recGen++; closeRec(); soltarToma(); }
 function closeRec() {
   if (!rec) return;
   const r = rec; rec = null;
   try { r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } catch {}
 }
 // reference: texto de referencia (shadowing) o null (habla libre). Devuelve {promise, stop}.
-function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, autoEnd = false } = {}) {
+function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, autoEnd = false, grabar = false } = {}) {
   let resolveFn; const promise = new Promise((r) => (resolveFn = r));
   const segs = []; let done = false, idle = null, cap = null, heardAny = false, own = null;
+  let micro = null, grab = null, trozos = [];
   const rg = recGen;
   const refWords = reference ? (reference.match(/[A-Za-z0-9']+/g) || []).length : 0;
   const finish = () => {
     if (done) return; done = true;
     clearTimeout(idle); clearTimeout(cap);
     if (own && rec === own) closeRec();   // solo el propio: nunca detener una grabación más nueva
-    resolveFn(summarize(segs));
+    const out = summarize(segs);
+    if (!grab) { micro?.getTracks().forEach((t) => t.stop()); resolveFn(out); return; }
+    const g = grab; grab = null;
+    let listo = false;
+    const entregar = () => {
+      if (listo) return; listo = true;
+      micro?.getTracks().forEach((t) => t.stop());
+      if (trozos.length && out.text) out.grabacion = new Blob(trozos, { type: g.mimeType || "audio/webm" });
+      resolveFn(out);
+    };
+    g.onstop = entregar; setTimeout(entregar, 1500);
+    try { if (g.state !== "inactive") g.stop(); else entregar(); } catch { entregar(); }
   };
   const armIdle = () => { clearTimeout(idle); if (autoEnd && heardAny) idle = setTimeout(finish, 3500); };
   (async () => {
@@ -78,7 +95,19 @@ function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, auto
     cfg.speechRecognitionLanguage = "en-US";
     cfg.outputFormat = SDK.OutputFormat.Detailed;
     cfg.setProperty(SDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, reference ? "1200" : "1800");
-    const r = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromDefaultMicrophoneInput());
+    // Para comparar, un solo micrófono: en iPhone abrir dos lo silencia. Si algo falla, se sigue sin grabación.
+    let audioCfg = null;
+    if (grabar && window.MediaRecorder && navigator.mediaDevices?.getUserMedia) {
+      try {
+        micro = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        if (done || rg !== recGen) { micro.getTracks().forEach((t) => t.stop()); finish(); return; }
+        audioCfg = SDK.AudioConfig.fromStreamInput(micro);
+        grab = new MediaRecorder(micro); trozos = [];
+        grab.ondataavailable = (e) => { if (e.data?.size) trozos.push(e.data); };
+        grab.start();
+      } catch { micro?.getTracks().forEach((t) => t.stop()); micro = null; grab = null; audioCfg = null; }
+    }
+    const r = new SDK.SpeechRecognizer(cfg, audioCfg || SDK.AudioConfig.fromDefaultMicrophoneInput());
     // Detalle por sonido (fonema, en IPA) y qué sonido se oyó en su lugar: mismo audio, mismo costo en Azure
     const pac = new SDK.PronunciationAssessmentConfig(reference || "", SDK.PronunciationAssessmentGradingSystem.HundredMark, SDK.PronunciationAssessmentGranularity.Phoneme, !!reference);
     try { pac.enableProsodyAssessment = true; } catch {}
@@ -220,7 +249,7 @@ function sonidosHTML(words) {
   }
   const top = [...m.values()].sort((a, b) => b.n - a.n || a.suma / a.n - b.suma / b.n).slice(0, 2);
   if (!top.length) return "";
-  return `<div class="sonidos"><b>Sonidos para practicar</b>${top.map((e) => `<div class="sonido"><span class="fon">/${esc(e.x.p)}/</span><span><b>${esc([...e.palabras].slice(0, 3).join(", "))}</b>${e.x.d && e.x.d !== e.x.p ? ` · sonó como /${esc(e.x.d)}/` : ""}<br><span class="muted">${esc(consejoSonido(e.x))}${SONIDOS[e.x.p] ? ` Como en: ${esc(SONIDOS[e.x.p][1])}.` : ""}</span></span></div>`).join("")}</div>`;
+  return `<div class="sonidos"><b>Sonidos para practicar</b>${top.map((e) => `<div class="sonido"><span class="fon">/${esc(e.x.p)}/</span><span><b>${[...e.palabras].slice(0, 3).map((w) => `<button type="button" class="oir" data-oir="${esc(w)}" aria-label="Escuchar ${esc(w)} en lento">${esc(w)}</button>`).join(", ")}</b>${e.x.d && e.x.d !== e.x.p ? ` · sonó como /${esc(e.x.d)}/` : ""}<br><span class="muted">${esc(consejoSonido(e.x))}${SONIDOS[e.x.p] ? ` Como en: ${esc(SONIDOS[e.x.p][1])}.` : ""}</span></span></div>`).join("")}</div>`;
 }
 function summarize(segs) {
   const out = { text: segs.map((s) => s.text).join(" ").trim(), segundos: Math.round(segs.reduce((a, s) => a + s.secs, 0)), palabras: segs.flatMap((s) => s.words) };
@@ -251,6 +280,12 @@ document.addEventListener("click", (e) => {
   let hint = p.nextElementSibling;
   if (!hint?.classList.contains("pw-hint")) { hint = document.createElement("p"); hint.className = "pw-hint muted small"; hint.setAttribute("role", "status"); p.after(hint); }
   hint.textContent = `«${b.dataset.w}»: ${b.dataset.sc} de 100${b.dataset.f ? ` · ${b.dataset.f}` : ""}`;
+  pararToma();
+  sayEN(b.dataset.w, { rate: "-35%" });   // así se dice, en lento
+});
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("button[data-oir]"); if (!b) return;
+  pararToma(); sayEN(b.dataset.oir, { rate: "-35%" });
 });
 function scoresHTML(r) {
   const k = [["exactitud", "Exactitud"], ["fluidez", "Fluidez"], ["prosodia", "Entonación"], ["completitud", "Completitud"]].filter(([x]) => r[x] != null);
@@ -1305,18 +1340,32 @@ function shadow(s) {
   const btn = $("#shGo"), res = $("#shRes");
   btn.disabled = true; btn.textContent = "Te escucho… repite la frase";
   res.innerHTML = `<div class="live" id="shLive"></div><button class="ghost" id="shStop">Listo</button>`;
-  const h = recognize({ reference: s.texto, maxMs: Math.max(12000, (s.fin - s.inicio) * 3000), autoEnd: true, onPartial: (t) => { const el = $("#shLive"); if (el) el.textContent = t; } });
+  soltarToma();
+  const h = recognize({ reference: s.texto, grabar: true, maxMs: Math.max(12000, (s.fin - s.inicio) * 3000), autoEnd: true, onPartial: (t) => { const el = $("#shLive"); if (el) el.textContent = t; } });
   on("shStop", h.stop);
   h.promise.then((r) => {
     if (!document.body.contains(btn)) return;
     btn.disabled = false; btn.innerHTML = `${IC.mic}Otra vez`;
     if (!r.text) { res.innerHTML = `<p class="small muted">No te oí. Revisa el micrófono e intenta de nuevo.</p>`; return; }
     savePron("leccion", s.texto, r, LS.row.id);
+    if (r.grabacion) miToma = URL.createObjectURL(r.grabacion);
     const weak = r.palabras.filter((w) => w.error !== "Insertion" && (w.error === "Omission" || (w.score != null && w.score < 60))).map((w) => w.w);
     const amber = r.palabras.some((w) => w.error !== "Insertion" && w.score != null && w.score < 80);
     res.innerHTML = `${scoresHTML(r)}${wordsHTML(r.palabras)}${sonidosHTML(r.palabras)}
       <p class="small muted">${weak.length ? `Practica: <b>${esc([...new Set(weak)].slice(0, 5).join(", "))}</b>. Escúchalas en lento y repite.` : amber ? "Ninguna palabra quedó en rojo; las de color ámbar todavía se pueden pulir." : "Todas las palabras salieron claras."}</p>
-      <p class="small muted">Verde: clara · ámbar: mejorable · rojo: no se entendió · tachada: no la dijiste. Toca una palabra para ver qué sonido falló.</p>`;
+      <div class="comparar" role="group" aria-label="Comparar">
+        ${miToma ? `<button class="ghost" id="shYo">${IC.play}Cómo lo dijiste</button>` : ""}
+        <button class="ghost" id="shModelo">${IC.play}Cómo se dice</button>
+        <button class="ghost lento" id="shLento">${IC.play}Cómo se dice, en lento</button>
+      </div>
+      <p class="small muted">Verde: clara · ámbar: mejorable · rojo: no se entendió · tachada: no la dijiste. Toca una palabra para ver qué sonido falló y oírla en lento.${miToma ? " Tu grabación solo queda en esta pantalla: se borra al cambiar de frase." : ""}</p>`;
+    on("shYo", () => {
+      if (!miToma) return;
+      loopRun++; stopVideo(); Sala.stopAudio(); pararToma();
+      miAudio = new Audio(miToma); miAudio.play().catch(() => {});
+    });
+    on("shModelo", () => { loopRun++; pararToma(); playRange(s.inicio, s.fin, { rate: 1, text: s.texto }); });
+    on("shLento", () => { loopRun++; stopVideo(); pararToma(); sayEN(s.texto, { rate: "-30%" }); });
   });
 }
 function step5() {
