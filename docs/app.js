@@ -599,7 +599,7 @@ function onSpeechStart() {
   if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
   if (player.playing?.coach) return;     // repetir en voz baja o un ruido no corta la corrección; se salta tocando el círculo
   bargeFrames = 0;                      // sin interrupción también se abre: si sigues hablando al terminar el personaje, cuenta
-  openStt();
+  openStt(PRON_CONV, true);
   for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; }
   if (S.state !== "speaking") setState("hearing", "");
 }
@@ -641,7 +641,7 @@ async function onSpeechEnd() {
   if (sess.overTTS) {
     const lastBot = [...S.history].reverse().find((t) => t.role === "assistant");
     if (isEcho(text, lastBot?.content) || isEcho(text, S.lastCoachText)) {
-      logDebug("Descartado por eco: " + text);
+      logDebug("Descartado por eco: " + text); S.pronTurno = [];
       if (S.state === "hearing") setState("listening", "");
       return;
     }
@@ -674,7 +674,9 @@ async function cerrarTurno() {
   userSaid(text, { speechEnd: tEnd, sttDone: now() });
 }
 
-function openStt(conPron = false) {
+// La conversación también puntúa cada sonido (mismo audio, mismo costo). Apagar aquí si sube la latencia.
+const PRON_CONV = true;
+function openStt(conPron = false, conv = false) {
   if (stt) { stt.discard = true; closeStt(); }
   const fmt = SDK.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1);
   const push = SDK.AudioInputStream.createPushStream(fmt);
@@ -690,7 +692,7 @@ function openStt(conPron = false) {
       pac.applyTo(rec);
     } catch (e) { logDebug("pronunciación " + e); }
   }
-  const sess = { rec, push, pron: [], parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
+  const sess = { rec, push, conv, pron: [], parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
   sess.done = new Promise((resolve) => { sess.resolve = resolve; });
   rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard) unaVez?.parcial?.([...sess.parts, sess.partial].join(" ")); if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
   rec.recognized = (_s, e) => {
@@ -715,9 +717,11 @@ async function closeStt() {
   const sess = stt; if (!sess) return "";
   stt = null;
   if (!sess.closed) { sess.closed = true; try { sess.push.close(); } catch {} }
+  const juntar = () => { if (sess.conv && !sess.discard && sess.pron.length) (S.pronTurno ||= []).push(...sess.pron); };
   S.usage.sttSeconds += (sess.frames * 1536) / 16000;
   await Promise.race([sess.done, new Promise((r) => setTimeout(r, 3000))]);
   try { sess.rec.stopContinuousRecognitionAsync(() => sess.rec.close(), () => sess.rec.close()); } catch {}
+  juntar();
   if (sess.error && !sess.discard) {
     if (/quota|429|throttl/i.test(sess.error)) notice("La voz no está disponible por ahora. Puedes seguir escribiendo abajo.");
     else if (/401|auth/i.test(sess.error)) { azureToken(true).catch(() => {}); }
@@ -749,6 +753,13 @@ async function userSaid(text, m = {}) {
     if (S.prueba) pruebaTurno(S.sesion.turnos);
   }
   const bubble = addBubble("user", text);
+  const pw = m.speechEnd ? (S.pronTurno || []).splice(0) : [];   // escrito a mano no tiene audio
+  S.pronTurno = [];
+  if (pw.length) {
+    (S.pronSesion ||= []).push(...pw);
+    const linea = !S.scene?.prep && window.Estudio?._sonidoLinea?.(pw);   // en el simulacro todo queda para el final
+    if (linea) bubble.insertAdjacentHTML("beforeend", linea);
+  }
   setState("thinking", "");
   const conf = m.speechEnd ? promedioConf() : null;   // escrito a mano no tiene confianza
   confTurno.length = 0;
@@ -924,6 +935,7 @@ function evalHTML(ev) {
   </div>`;
 }
 function showRecap(scene, ses, list, leave, hist = []) {
+  const pronRecap = S.pronSesion || [];
   const users = hist.filter((t) => t.role === "user").length;
   if (scene.prep) window.Prep?.setHist(hist);
   let ev = users >= MIN_EVAL ? { loading: true } : { corta: true };
@@ -950,6 +962,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
       <p class="muted">${esc(scene.title)}</p>
       ${evalHTML(ev)}
       <div class="kpis"><div><small>Turnos</small><b>${ses.turnos}</b></div><div><small>Palabras tuyas</small><b>${ses.palabras_jose}</b></div><div><small>Correcciones</small><b>${list.length}</b></div></div>
+      ${window.Estudio?._sonidos?.(pronRecap) || ""}
       ${last.length ? `<div class="rc-ctx"><b>Frase para mañana</b><span class="en">${esc(last[0].better)}</span></div>
         <h2>${scene.prep ? "Correcciones de tu inglés en el simulacro" : "Lo que más conviene repasar"}</h2>
         <div class="list">${last.map((c) => { const d = wordDiff(c.original, c.better); return `<div class="li"><span class="said">${d.said}</span><span class="fixed">${d.fixed}</span>${c.tip ? `<span class="meta">${esc(c.tip)}</span>` : ""}</div>`; }).join("")}</div>
@@ -1044,7 +1057,7 @@ const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófon
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
   coachQ.length = 0;
-  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
+  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.pronTurno = []; S.pronSesion = []; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
   turno.partes = []; turno.cerrando = false; turno.segmento = null;
   $("#log").innerHTML = briefHTML(scene);
   $("#sceneName").textContent = scene.title;
@@ -1217,7 +1230,7 @@ function saveSessionNow() {
   Object.assign(S.sesion, {
     fin: new Date().toISOString(),
     stt_segundos: Math.round(u.sttSeconds), tts_caracteres: u.ttsChars,
-    tokens: { haiku_in: u.haikuIn, haiku_out: u.haikuOut, haiku_cache: u.haikuCacheRead, sonnet_in: u.sonnetIn, sonnet_out: u.sonnetOut, confianza: S.confs || [] },
+    tokens: { haiku_in: u.haikuIn, haiku_out: u.haikuOut, haiku_cache: u.haikuCacheRead, sonnet_in: u.sonnetIn, sonnet_out: u.sonnetOut, confianza: S.confs || [], pron: window.Estudio?._pronResumen?.(S.pronSesion || []) || null, nivel_escena: S.scene?.nivel || S.level },
     latencias: S.metrics.filter((m) => m.at >= since).map((m) => m.total),
     nivel_estimado: Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0] || null,
   });

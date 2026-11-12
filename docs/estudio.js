@@ -169,6 +169,22 @@ function consejoSonido(x) {
 function sonidoTexto(x) {
   return x.d && x.d !== x.p ? `/${x.p}/ sonó como /${x.d}/` : `el sonido /${x.p}/ (${Math.round(x.s)} de 100)`;
 }
+// Una línea bajo la respuesta en la conversación: el sonido más débil del turno, o "" si todo salió bien
+function sonidoLinea(words) {
+  let peor = null, en = "";
+  for (const w of words) { const x = sonidoDebil(w); if (x && (!peor || x.s < peor.s)) { peor = x; en = w.w; } }
+  if (!peor) return "";
+  const como = peor.d && peor.d !== peor.p ? ` sonó como /${esc(peor.d)}/` : "";
+  return `<div class="pron-linea"><b>Sonido para pulir:</b> /${esc(peor.p)}/ en «${esc(en)}»${como}. <span class="muted">${esc(consejoSonido(peor))}</span></div>`;
+}
+// Resumen que se guarda con la sesión: exactitud media por palabra y los sonidos que más fallaron
+function pronResumen(words) {
+  const sc = words.filter((w) => w.score != null && w.error !== "Insertion").map((w) => w.score);
+  if (!sc.length) return null;
+  const m = new Map();
+  for (const w of words) { const x = sonidoDebil(w); if (x) m.set(x.p, (m.get(x.p) || 0) + 1); }
+  return { exactitud: Math.round(sc.reduce((a, b) => a + b, 0) / sc.length), palabras: sc.length, debiles: [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) };
+}
 // Los dos sonidos más débiles de toda la frase, con las palabras donde fallaron
 function sonidosHTML(words) {
   const m = new Map();
@@ -1758,5 +1774,5 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   if (!document.getElementById("talk").hidden) { Sala.notice("Tu lección está lista. Ábrela en «Aprender con un video» cuando termines esta práctica.", "info"); return; }
   openLesson(e.data.abrirLeccion);
 });
-window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, guardarNivel, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML, _sonidos: sonidosHTML, _parseSeg: parseSeg };
+window.Estudio = { password: passwordScreen, open: openLesson, goals: goalsScreen, syncPerfil, guardarNivel, goalsSummary, reopen, test: testIntro, video: videoHome, progress, scene: sceneHome, borrarEscena: deleteScene, renombrarEscena: renameScene,_parsePasted: parsePasted, _eap: eap, _update: updatePost, _prior: prior, _levelOf: levelOf, _screen: screen, _body: body, _on: on, _err: err, _recognize: recognize, _say: sayEN, _scores: scoresHTML, _words: wordsHTML, _sonidos: sonidosHTML, _parseSeg: parseSeg, _sonidoLinea: sonidoLinea, _pronResumen: pronResumen };
 })();
