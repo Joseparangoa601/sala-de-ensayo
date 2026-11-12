@@ -21,6 +21,28 @@ const historias = () => P.row?.historias ?? [];
 const respuestas = (id) => P.intentos.filter((x) => x.tipo === "respuesta" && x.pregunta_id === id);
 const mejor = (id) => { const r = respuestas(id); return r.length ? Math.max(...r.map((x) => x.puntaje ?? 0)) : null; };
 const completa = (h) => !!(h.situacion?.trim() && h.accion?.trim() && h.resultado?.trim());
+/* Avance de cada historia: sus prácticas se guardan con la pregunta h1…h5 */
+const deHistoria = (i) => respuestas("h" + (i + 1));
+const avanceTxt = (r) => (r.length > 1 ? `${r[0].puntaje} → ${r[r.length - 1].puntaje}` : r.length ? `${r[0].puntaje}` : "");
+/* Tablero: en el último intento de cada pregunta o historia, cuántas respuestas cumplen cada criterio */
+function tablero() {
+  const ult = new Map();
+  for (const x of P.intentos) if (x.tipo === "respuesta" && x.evaluacion?.criterios) ult.set(x.pregunta_id, x.evaluacion.criterios);
+  const n = ult.size;
+  const filas = CRIT.map(([k, l]) => {
+    let si = 0, parcial = 0;
+    for (const c of ult.values()) { if (c[k]?.estado === "si") si++; else if (c[k]?.estado === "parcial") parcial++; }
+    return { k, l, si, parcial };
+  });
+  const flojo = n ? filas.reduce((a, b) => (b.si + b.parcial / 2 < a.si + a.parcial / 2 ? b : a)) : null;
+  return { n, filas, flojo: flojo && flojo.si < n ? flojo : null };
+}
+const CONSEJO = {
+  hecho: "Empieza por un caso real: dónde, cuándo y qué estaba pasando.",
+  accion: "Di «I», no «we»: lo que hiciste tú, con verbos de acción.",
+  resultado: "Cierra con un número: tiempo, dinero, porcentaje o cantidad de personas.",
+  relacion: "Termina conectando con el cargo: por qué eso sirve en este puesto.",
+};
 /* ---------------- hoja de vida desde un archivo: el texto se saca en el teléfono, nada se sube hasta crear el expediente ---------------- */
 const LIB_PDF = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
 const LIB_PDF_W = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
@@ -222,12 +244,14 @@ function hub() {
     <div class="prep-ix"><b>${ix.total}</b><span><strong>${esc(etapa(ix.total))}</strong><small>Índice de preparación de 0 a 100</small></span></div>
     <div class="kpis"><div><small>Preguntas</small><b>${ix.buenas}/${preguntas().length}</b></div><div><small>Historias</small><b>${hs.filter(completa).length}/5</b></div><div><small>Simulacros</small><b>${P.intentos.filter((x) => x.tipo === "simulacro").length}</b></div></div>
     <p class="muted small">El índice mide lo que ensayaste aquí: preguntas con 75 o más (30), historias completas (20), último simulacro (50). No predice la decisión de la empresa.</p>
+    ${P.row.fecha ? `<button class="linklike" id="pFecha">Cambiar la fecha de la entrevista</button>` : `<div class="notice" data-kind="info"><b>¿Ya sabes cuándo es tu entrevista?</b> Con la fecha, el plan reparte lo pendiente entre los días que faltan.<label for="pFechaIn">Fecha de la entrevista</label><input id="pFechaIn" type="date"><div id="pFechaErr"></div><button class="primary wide" id="pFechaOk">Guardar la fecha</button></div>`}
+    ${tableroHTML()}
     <h2>${esc(pl.nombre)} · hoy</h2>
     ${pl.hoy.length ? `<div class="list">${pl.hoy.map((t, i) => `<button class="li lesson" data-t="${i}"><span>${esc(t.t)}</span></button>`).join("")}</div>` : `<div class="proof good"><span class="ok">✓ Completaste todo lo pendiente del plan. Repite un simulacro antes de la entrevista.</span></div>`}
     <button class="primary wide" id="pSim">Hacer un simulacro con voz</button>
     <div class="tiles one">
       <button class="tile" id="pQs"><span class="ic" aria-hidden="true"><svg><use href="#i-chat"/></svg></span><span><b>Las 20 preguntas</b><small>Practica y mira cómo te vendes</small></span></button>
-      <button class="tile" id="pHs"><span class="ic" aria-hidden="true"><svg><use href="#i-pen"/></svg></span><span><b>Tus 5 historias</b><small>Tus hechos, con tus palabras</small></span></button>
+      <button class="tile" id="pHs"><span class="ic" aria-hidden="true"><svg><use href="#i-pen"/></svg></span><span><b>Tus 5 historias</b><small>${hs.some((h, i) => deHistoria(i).length) ? `${hs.filter((h, i) => Math.max(0, ...deHistoria(i).map((x) => x.puntaje ?? 0)) >= 75).length} de ${hs.length} ya convencen (75 o más)` : "Tus hechos, con tus palabras"}</small></span></button>
       <button class="tile" id="pKit"><span class="ic" aria-hidden="true"><svg><use href="#i-flag"/></svg></span><span><b>Para el día de la entrevista</b><small>Guion de salario y correo de agradecimiento</small></span></button>
       <button class="tile" id="pAv"><span class="ic" aria-hidden="true"><svg><use href="#i-trend"/></svg></span><span><b>Tu avance</b><small>Primer intento contra el último</small></span></button>
     </div>
@@ -240,7 +264,34 @@ function hub() {
     const t = pl.hoy[Number(b.dataset.t)];
     if (t.k === "h") story(t.i); else if (t.k === "q") practice(t.q); else simulacro();
   };
+  on("pFecha", fechaEditar);
+  on("pFechaOk", () => guardarFecha($("#pFechaIn").value, "pFechaErr"));
   on("pSim", simulacro); on("pQs", questions); on("pHs", stories); on("pKit", kit); on("pAv", avance); on("pDel", borrar);
+}
+function tableroHTML() {
+  const t = tablero();
+  if (!t.n) return "";
+  return `<h2>Tus 4 criterios</h2>
+    <p class="muted small">En el último intento de cada una de tus ${t.n} ${t.n === 1 ? "respuesta practicada" : "respuestas practicadas"}.</p>
+    <div class="crit">${t.filas.map((f) => `<div class="crit-f${t.flojo?.k === f.k ? " flojo" : ""}"><span class="crit-l">${esc(f.l)}</span><span class="crit-b" role="img" aria-label="${f.si} de ${t.n} lo cumplen, ${f.parcial} a medias"><i style="width:${Math.round((f.si / t.n) * 100)}%"></i><i class="m" style="width:${Math.round((f.parcial / t.n) * 100)}%"></i></span><span class="crit-n">${f.si}/${t.n}</span></div>`).join("")}</div>
+    ${t.flojo ? `<div class="reto"><span class="lbl">Lo que más te sube el puntaje ahora: ${esc(t.flojo.l.toLowerCase())}</span><span>${esc(CONSEJO[t.flojo.k])}</span></div>` : `<p class="muted small">Tus respuestas cumplen los 4 criterios. Ahora sostenlo en un simulacro completo.</p>`}`;
+}
+async function guardarFecha(v, errId) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v || "")) { $("#" + errId).innerHTML = E()._err("Elige una fecha."); return; }
+  const { error } = await sb().from("expediente").update({ fecha: v, actualizado: new Date().toISOString() }).eq("user_id", P.row.user_id);
+  if (error) { $("#" + errId).innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
+  P.row.fecha = v; hub();
+}
+function fechaEditar() {
+  scr("Fecha de la entrevista", "", hub, BACK);
+  paint(`<label for="fdIn">Fecha de la entrevista</label><input id="fdIn" type="date" value="${esc(P.row.fecha || "")}"><div id="fdErr"></div>
+    <button class="primary wide" id="fdOk">Guardar</button><button class="ghost wide" id="fdQuitar">Todavía no tengo fecha</button>`);
+  on("fdOk", () => guardarFecha($("#fdIn").value, "fdErr"));
+  on("fdQuitar", async () => {
+    const { error } = await sb().from("expediente").update({ fecha: null, actualizado: new Date().toISOString() }).eq("user_id", P.row.user_id);
+    if (error) { $("#fdErr").innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
+    P.row.fecha = null; hub();
+  });
 }
 function borrar() {
   scr("Borrar expediente", "", hub, BACK);
@@ -339,7 +390,7 @@ function stories() {
   scr("Tus 5 historias", "", hub, BACK);
   const hs = historias();
   paint(`<p class="muted">Salen de tu hoja de vida. Corrige lo que no sea exacto y completa lo que falte: solo tú conoces esos datos.</p>
-    <div class="list">${hs.map((h, i) => `<button class="li lesson" data-h="${i}"><span>${esc(h.titulo)}</span><span class="meta">${completa(h) ? "Completa" : "Falta información"}</span></button>`).join("")}</div>`);
+    <div class="list">${hs.map((h, i) => `<button class="li lesson" data-h="${i}"><span>${esc(h.titulo)}</span><span class="meta">${completa(h) ? "Completa" : "Falta información"}${deHistoria(i).length ? ` · puntaje ${avanceTxt(deHistoria(i))}` : " · sin practicar"}</span></button>`).join("")}</div>`);
   for (const b of document.querySelectorAll("[data-h]")) b.onclick = () => story(Number(b.dataset.h));
 }
 function story(i) {
@@ -477,6 +528,7 @@ function avance() {
   const ing = P.sims.map((s) => s.evaluacion?.puntaje).filter((n) => n != null);
   const par = (a) => (a.length > 1 ? `${a[0]} → ${a[a.length - 1]}` : a.length ? String(a[0]) : "Sin datos");
   paint(`<div class="kpis"><div><small>Simulacro: cómo te vendes</small><b>${par(vent.map((x) => x.puntaje))}</b></div><div><small>Simulacro: inglés y objetivo</small><b>${par(ing)}</b></div></div>
+    ${historias().some((h, i) => deHistoria(i).length) ? `<h2>Historia por historia</h2><div class="list">${historias().map((h, i) => ({ h, r: deHistoria(i) })).filter((x) => x.r.length).map(({ h, r }) => `<div class="li"><span>${esc(h.titulo)}</span><span class="meta">${r.length} ${r.length === 1 ? "intento" : "intentos"} · ${r.length > 1 ? `primero ${r[0].puntaje} · último ${r[r.length - 1].puntaje}` : `puntaje ${r[0].puntaje}`}</span></div>`).join("")}</div>` : ""}
     <h2>Pregunta por pregunta</h2>
     ${filas.length ? `<div class="list">${filas.map(({ q, r }) => `<div class="li"><span>${esc(q.en)}</span><span class="meta">${r.length} ${r.length === 1 ? "intento" : "intentos"} · primero ${r[0].puntaje} · último ${r[r.length - 1].puntaje}</span></div>`).join("")}</div>` : `<p class="muted">Aún no has practicado ninguna pregunta.</p>`}`);
 }

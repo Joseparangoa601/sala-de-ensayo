@@ -1533,10 +1533,11 @@ async function refreshToday() {
   try {
     const since = new Date(Date.now() - 400 * 864e5).toISOString();
     // Lo más reciente primero: si el servidor recorta filas, se pierde lo viejo y no la racha actual
-    const [ses, rep, lec] = await Promise.all([
-      sb.from("sesiones").select("inicio,turnos").gt("turnos", 0).gte("inicio", since).order("inicio", { ascending: false }),
+    const [ses, rep, lec, ent] = await Promise.all([
+      sb.from("sesiones").select("inicio,fin,turnos").gt("turnos", 0).gte("inicio", since).order("inicio", { ascending: false }),
       sb.from("repasos").select("repasado").gte("repasado", since).order("repasado", { ascending: false }),
       sb.from("lecciones").select("id,titulo,progreso,tokens").order("actualizado", { ascending: false }).limit(8),
+      sb.from("expediente_intentos").select("creado").eq("tipo", "respuesta").gte("creado", new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),
     ]);
     if (ses.error) return;
     const today = dayKey();
@@ -1545,6 +1546,7 @@ async function refreshToday() {
     TODAY.practiced = convDays.has(today);
     const days = new Set([...convDays, ...(rep.data || []).map((r) => dayKey(new Date(r.repasado)))]);
     renderWeek(days);
+    renderMeta(ses.data || [], rep.data || [], ent.data || []);
     const d = new Date();
     if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1);   // hoy aún no cuenta en contra
     let streak = 0;
@@ -1553,6 +1555,20 @@ async function refreshToday() {
     TODAY.lesson = (lec.data || []).find((l) => !["creando", "error"].includes(l.tokens?.estado) && (l.progreso?.paso || 1) < 6 && !l.progreso?.conversada) || null;
     if (!$("#home").hidden) renderToday();
   } catch {}
+}
+/* Meta del día: 10 minutos. Conversaciones medidas de inicio a fin (máximo 30 min cada una);
+   repaso estimado en 25 s por frase y cada respuesta de entrevista en 2 min */
+const META_MIN = 10;
+function renderMeta(ses, rep, ent) {
+  const el = $("#metaHoy"); if (!el) return;
+  const hoy = dayKey();
+  const conv = ses.filter((s) => dayKey(new Date(s.inicio)) === hoy).reduce((a, s) => a + Math.min(1800, Math.max(0, (Date.parse(s.fin || s.inicio) - Date.parse(s.inicio)) / 1000)), 0);
+  const repaso = rep.filter((r) => dayKey(new Date(r.repasado)) === hoy).length * 25;
+  const min = Math.floor((conv + repaso + ent.length * 120) / 60);
+  const pct = Math.min(100, Math.round((min / META_MIN) * 100));
+  el.hidden = false;
+  el.innerHTML = `<div class="meta-t"><b>${min >= META_MIN ? `✓ Meta de hoy cumplida: ${min} min` : `Hoy: ${min} de ${META_MIN} min`}</b><small>${min >= META_MIN ? "Lo que sigas haciendo hoy es extra." : min ? `Te faltan ${META_MIN - min} min` : "10 minutos al día bastan para avanzar"}</small></div>
+    <div class="meta-b" role="progressbar" aria-label="Minutos de práctica hoy" aria-valuemin="0" aria-valuemax="${META_MIN}" aria-valuenow="${Math.min(min, META_MIN)}"><i style="width:${pct}%"></i></div>`;
 }
 function renderWeek(days) {
   const el = $("#week"); if (!el) return;

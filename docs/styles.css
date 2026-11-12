@@ -498,3 +498,17 @@ a.wide{display:flex;align-items:center;justify-content:center;text-align:center;
 input.sr:focus-visible + .subir{outline:3px solid var(--accent);outline-offset:2px}
 /* Primer día en «Hoy»: solo lo que toca ahora */
 .primer-dia #week,.primer-dia #hoyScenes,.primer-dia .top:has(#masTitulo){display:none}
+
+/* Fase 2: meta del día y tablero de criterios */
+.meta-hoy{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.meta-t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.meta-t small{color:var(--muted)}
+.meta-b,.crit-b{display:flex;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.meta-b i,.crit-b i{display:block;height:100%;background:var(--accent)}
+.crit-b i.m{background:var(--tip-line);opacity:.7}
+.crit{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.crit-f{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:4px 10px;align-items:center}
+.crit-l{grid-column:1/-1;font-size:.9rem}
+.crit-f.flojo .crit-l{font-weight:700}
+.crit-n{font-size:.85rem;color:var(--muted);text-align:right}
+.notice label{display:block;margin-top:10px}
