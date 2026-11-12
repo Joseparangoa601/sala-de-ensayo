@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap">
 <style>
-  :root{--bg:#F4F6F6;--surface:#fff;--ink:#141414;--muted:#54595f;--line:#E1E7E7;--accent:#0A7C93;--accent-ink:#fff;--action:#F2801A;--action-ink:#141414;--warm:#0FB0D2;--ok:#2f7a4f;--bad:#C6413A;--soft:#E3F5FA}
+  :root{--bg:#F4F6F6;--surface:#fff;--ink:#141414;--muted:#54595f;--line:#E1E7E7;--accent:#08748A;--accent-ink:#fff;--action:#F2801A;--action-ink:#141414;--warm:#0FB0D2;--ok:#2f7a4f;--bad:#C6413A;--soft:#E3F5FA}
   @media (prefers-color-scheme:dark){:root{--bg:#0E1216;--surface:#181D22;--ink:#EFF3F3;--muted:#a2adb0;--line:#243036;--accent:#0FB0D2;--accent-ink:#0E1216;--action:#F2801A;--action-ink:#141414;--warm:#0FB0D2;--ok:#6cc08f;--bad:#e07a70;--soft:#16303A}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -65,8 +65,9 @@
   .feat li{padding:10px 0;border-bottom:1px solid var(--line)} .feat li:last-child{border:0}
   .feat b{display:block}
   .feat span{color:var(--muted);font-size:.95rem}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .pill{display:inline-block;font-size:.72rem;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:middle}
-  .now{background:#e3f1e8;color:#235c3b} .soon{background:#E3F5FA;color:#0A7C93}
+  .now{background:#e3f1e8;color:#235c3b} .soon{background:#E3F5FA;color:#086A7E}
   @media (prefers-color-scheme:dark){.now{background:#1e3a2a;color:#9fdcb7}.soon{background:#16303A;color:#7fd8ec}}
   .shot{display:grid;grid-template-columns:230px 1fr;gap:22px;align-items:start;margin:22px 0;padding-bottom:22px;border-bottom:1px solid var(--line)}
   .shot img{width:100%;height:auto;display:block;border:7px solid #141414;border-radius:28px;box-shadow:0 10px 28px rgba(15,25,40,.18);background:#fff}
@@ -121,6 +122,7 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mark" viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="8" fill="currentColor"/><path d="M9 20.5 L15 11 L18.5 16 L23 9.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9.5" r="2.3" fill="#fff"/></symbol></svg>
 <!-- 1 · EL DESPUÉS (en quién se convierte), no el producto. Fondo: video de ambiente (comercial/hero_portada.py);
      las personas no usan la app ni se presentan como usuarias. -->
+<main>
 <section class="hero">
   <div class="hero-fondo" aria-hidden="true">
     <picture><source media="(max-width:860px)" srcset="video/portada_movil.webp?v=1" type="image/webp"><source srcset="video/portada_escritorio.webp?v=1" type="image/webp"><img src="video/portada_movil.jpg?v=1" alt="" fetchpriority="high"></picture>
@@ -263,7 +265,7 @@
   <h2>Frente a lo que ya existe</h2>
   <div class="tbl">
     <table>
-      <thead><tr><th></th><th>Apps de conversación con IA</th><th>PDF de preguntas y respuestas</th><th>Profesor particular</th><th>Sala de Ensayo</th></tr></thead>
+      <thead><tr><th><span class="sr">Qué comparamos</span></th><th>Apps de conversación con IA</th><th>PDF de preguntas y respuestas</th><th>Profesor particular</th><th>Sala de Ensayo</th></tr></thead>
       <tbody>
         <tr><td>Practicas hablando, en voz alta</td><td>Sí</td><td>No</td><td>Sí</td><td class="us">Sí</td></tr>
         <tr><td>Preguntas del cargo al que aplicas</td><td>A veces</td><td>Genéricas</td><td>Sí</td><td class="us">Sí</td></tr>
@@ -310,6 +312,9 @@
   <details><summary>¿Cómo pongo el ícono en la pantalla de inicio?</summary><p>Así abres Sala de Ensayo como una app, sin entrar al navegador cada vez. Solo se hace una vez, con la página de la app abierta en tu celular.</p><p><b>En iPhone:</b> ábrela en Safari, toca el botón Compartir (el cuadrado con la flecha hacia arriba), elige «Agregar a inicio» y confirma con «Agregar».</p><p><b>En Android:</b> ábrela en Chrome, toca el menú de los tres puntos y elige «Instalar app» o «Agregar a la pantalla principal».</p></details>
   <details><summary>¿Y si ya tengo profesor?</summary><p>Mejor. Usa la app para ensayar todos los días lo que ves en clase; llegas a la clase con preguntas concretas.</p></details>
 
+</div>
+</main>
+<div class="wrap">
   <footer>
     <p>Sala de Ensayo, un producto de <a href="https://lead10x.com.co/" target="_blank" rel="noopener">lead10x</a> · <a href="privacidad.html">Política de privacidad</a> · Sin cookies ni rastreadores de terceros.</p>
   </footer>

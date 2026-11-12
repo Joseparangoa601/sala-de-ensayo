@@ -50,6 +50,7 @@
   <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
 </svg>
 
+<main id="app">
 <section class="screen" id="splash">
   <div class="splash"><img src="icon-512.png" alt="" width="96" height="96"><p>Sala de Ensayo</p><span class="loadbar" aria-hidden="true"></span></div>
 </section>
@@ -153,7 +154,7 @@
 <section class="screen" id="review" hidden>
   <header class="talkbar">
     <button class="ghost" id="reviewBack" aria-label="Volver al inicio">‹ Inicio</button>
-    <div class="titles"><strong>Repaso</strong><span id="reviewCount"></span></div>
+    <div class="titles"><strong role="heading" aria-level="1">Repaso</strong><span id="reviewCount"></span></div>
     <span style="width:64px"></span>
   </header>
   <div class="logwrap"><div class="pad stack">
@@ -174,7 +175,7 @@
 <section class="screen" id="talk" hidden>
   <header class="talkbar">
     <button class="ghost" id="backBtn" aria-label="Volver a las escenas">‹ Escenas</button>
-    <div class="titles"><strong id="sceneName"></strong><span id="sceneWho"></span></div>
+    <div class="titles"><strong id="sceneName" role="heading" aria-level="1"></strong><span id="sceneWho"></span></div>
     <button class="ghost" id="settingsBtn" aria-label="Voz del personaje">Voz</button>
   </header>
   <div id="settings" class="settings" hidden>
@@ -204,6 +205,7 @@
 <section class="screen" id="recap" hidden>
   <div class="pad stack" id="recapBody" aria-live="polite"></div>
 </section>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.40.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>

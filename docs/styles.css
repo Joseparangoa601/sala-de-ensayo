@@ -25,6 +25,7 @@ body.kb .stage{display:none}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer;min-height:44px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+main#app{height:100%}
 .screen{height:100%;display:flex;flex-direction:column}
 /* El ancho de lectura va en el relleno, no en el bloque: así la barra de desplazamiento queda en el borde de la ventana */
 .pad{padding:20px max(16px,calc((100% - 608px)/2));width:100%;overflow-y:auto}
