@@ -478,3 +478,11 @@ a.wide{display:flex;align-items:center;justify-content:center;text-align:center;
 .comparar button{min-width:0}
 .comparar .lento,.comparar:not(:has(#shYo)) button{grid-column:1/-1}
 .sonido button.oir{min-height:0;background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
+.transcript.eligiendo .tline{border:1px dashed var(--line);margin-bottom:4px}
+.transcript.eligiendo .ttr{display:none}
+.tline.sel{border:1px solid var(--accent)!important;border-left-width:3px!important;background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.el-ya{color:var(--ins);font-weight:600}
+.el-barra{position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));margin-top:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 -4px 16px rgb(0 0 0 / .08)}
+.el-barra #elN{flex:1 0 100%;font-weight:600}
+.el-barra .primary,.el-barra .ghost{flex:1 1 auto}
+.chip-elegida{display:inline-block;font-size:.78em;font-weight:600;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--ink);margin-right:6px}

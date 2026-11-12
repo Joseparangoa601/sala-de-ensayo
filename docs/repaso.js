@@ -146,11 +146,22 @@ function render() {
     return;
   }
   const c = current;
-  let h = `<div class="rc-meta">${esc(c.escena || "Conversación")}${c.reps ? ` · repasada ${c.reps} ${c.reps === 1 ? "vez" : "veces"}` : " · nueva"}</div>`;
+  const elegida = c.origen === "manual";   // frase que la persona eligió del texto de un video
+  let h = `<div class="rc-meta">${elegida ? `<span class="chip-elegida">Frase elegida</span>` : ""}${esc(c.escena || "Conversación")}${c.reps ? ` · repasada ${c.reps} ${c.reps === 1 ? "vez" : "veces"}` : " · nueva"}</div>`;
   if (c.contexto) h += `<div class="rc-ctx"><b>El personaje dijo</b><span>${esc(c.contexto)}</span>${phase === "listening" ? "" : oirBtns(c.contexto)}</div>`;
   const natural = c.origen === "natural";   // la frase estaba bien: se muestra sin tachar y se practica la versión natural
   if (c.dijiste) h += `<div class="rc-ctx"><b>${natural ? "Tu frase estaba bien" : "Tú dijiste"}</b><span class="${natural ? "" : "del"}">${esc(c.dijiste)}</span></div>`;
-  if (phase === "ask") {
+  if (phase === "ask" && elegida) {
+    // Sin error que corregir: la pista es lo que quiere decir (si se tradujo) o la frase misma para imitarla
+    h += c.tip ? `<div class="rc-ctx"><b>Qué quiere decir</b><span lang="es">${esc(c.tip)}</span></div><p class="rc-q">¿Cómo lo dicen en el video? Dilo en voz alta.</p>`
+      : `<div class="rc-ctx"><b>Escúchala</b>${oirBtns(c.correcta)}</div><p class="rc-q">Dila igual, con el mismo ritmo.</p>`;
+    h += `${voiceMsg ? `<div class="notice" role="alert">${esc(voiceMsg)}</div>` : ""}
+      <div class="rc-actions">
+        <button class="primary big" id="rcSpeak">${IC.mic}Decirlo</button>
+        <button class="ghost" id="rcShow">Mostrar respuesta</button>
+      </div>
+      <form id="rcType" class="row2"><input id="rcTypeBox" placeholder="…o escríbelo" autocomplete="off" aria-label="Escribir la respuesta"><button class="ghost">OK</button></form>`;
+  } else if (phase === "ask") {
     h += `<p class="rc-q">${natural ? "¿Cómo lo diría un nativo? Dilo en voz alta." : c.dijiste ? "¿Cómo se dice bien? Dilo en voz alta." : "Di la expresión en voz alta."}</p>
       ${voiceMsg ? `<div class="notice" role="alert">${esc(voiceMsg)}</div>` : ""}
       <div class="rc-actions">
@@ -254,7 +265,7 @@ function stopRec() {
   const r = rec; rec = null;
   r.cancelar();
 }
-const leerTarjeta = (c) => Sala.leerCorreccion(c.origen === "natural"
+const leerTarjeta = (c) => c.origen === "manual" ? Sala.speakEN(c.correcta) : Sala.leerCorreccion(c.origen === "natural"
   ? { ok: true, better: "", natural: c.correcta, tip: c.tip }
   : { ok: false, better: c.correcta, natural: c.nativo && c.nativo !== c.correcta ? c.nativo : "", tip: c.tip });
 
@@ -289,13 +300,20 @@ function reveal(said, hablado = false) {
 
 function renderList() {
   const det = $("#reviewAll");
-  const all = Datos.all().slice().sort((a, b) => new Date(a.due) - new Date(b.due));
-  det.querySelector("summary").textContent = `Ver todo el cuaderno (${all.length})`;
-  det.querySelector(".list").innerHTML = all.map((c) => `
-    <div class="li"><span class="ins">${esc(c.correcta)}</span>
+  const todas = Datos.all().slice().sort((a, b) => new Date(a.due) - new Date(b.due));
+  const nEl = todas.filter((c) => c.origen === "manual").length;
+  if (!nEl) filtro = "todas";
+  const all = filtro === "elegidas" ? todas.filter((c) => c.origen === "manual") : todas;
+  det.querySelector("summary").textContent = `Ver todo el cuaderno (${todas.length})`;
+  det.querySelector(".list").innerHTML = (nEl ? `<div class="chips" role="group" aria-label="Filtrar el cuaderno">
+      <button class="chip ${filtro === "todas" ? "on" : ""}" data-filtro="todas" aria-pressed="${filtro === "todas"}">Todas (${todas.length})</button>
+      <button class="chip ${filtro === "elegidas" ? "on" : ""}" data-filtro="elegidas" aria-pressed="${filtro === "elegidas"}">Elegidas por ti (${nEl})</button></div>` : "") + all.map((c) => `
+    <div class="li"><span class="ins">${c.origen === "manual" ? `<span class="chip-elegida">Frase elegida</span>` : ""}${esc(c.correcta)}</span>
     ${c.dijiste ? `<span class="${c.origen === "natural" ? "" : "del "}small">${esc(c.dijiste)}</span>` : ""}
     <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}${new Date(c.due) <= Date.now() ? "lista para repasar" : `próximo repaso ${enCuanto(c.due)}`}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
+  for (const b of det.querySelectorAll("[data-filtro]")) b.onclick = () => { filtro = b.dataset.filtro; renderList(); };
 }
+let filtro = "todas";
 
 document.addEventListener("DOMContentLoaded", () => {
   const back = $("#reviewBack");

@@ -249,7 +249,7 @@ function sonidosHTML(words) {
   }
   const top = [...m.values()].sort((a, b) => b.n - a.n || a.suma / a.n - b.suma / b.n).slice(0, 2);
   if (!top.length) return "";
-  return `<div class="sonidos"><b>Sonidos para practicar</b>${top.map((e) => `<div class="sonido"><span class="fon">/${esc(e.x.p)}/</span><span><b>${[...e.palabras].slice(0, 3).map((w) => `<button type="button" class="oir" data-oir="${esc(w)}" aria-label="Escuchar ${esc(w)} en lento">${esc(w)}</button>`).join(", ")}</b>${e.x.d && e.x.d !== e.x.p ? ` · sonó como /${esc(e.x.d)}/` : ""}<br><span class="muted">${esc(consejoSonido(e.x))}${SONIDOS[e.x.p] ? ` Como en: ${esc(SONIDOS[e.x.p][1])}.` : ""}</span></span></div>`).join("")}</div>`;
+  return `<div class="sonidos"><b>Sonidos para practicar</b>${top.map((e) => `<div class="sonido"><span class="fon">/${esc(e.x.p)}/</span><span><b>${[...e.palabras].slice(0, 3).map((w) => `<button type="button" class="oir" data-oir-lento="${esc(w)}" aria-label="Escuchar ${esc(w)} en lento">${esc(w)}</button>`).join(", ")}</b>${e.x.d && e.x.d !== e.x.p ? ` · sonó como /${esc(e.x.d)}/` : ""}<br><span class="muted">${esc(consejoSonido(e.x))}${SONIDOS[e.x.p] ? ` Como en: ${esc(SONIDOS[e.x.p][1])}.` : ""}</span></span></div>`).join("")}</div>`;
 }
 function summarize(segs) {
   const out = { text: segs.map((s) => s.text).join(" ").trim(), segundos: Math.round(segs.reduce((a, s) => a + s.secs, 0)), palabras: segs.flatMap((s) => s.words) };
@@ -284,8 +284,8 @@ document.addEventListener("click", (e) => {
   sayEN(b.dataset.w, { rate: "-35%" });   // así se dice, en lento
 });
 document.addEventListener("click", (e) => {
-  const b = e.target.closest?.("button[data-oir]"); if (!b) return;
-  pararToma(); sayEN(b.dataset.oir, { rate: "-35%" });
+  const b = e.target.closest?.("button[data-oir-lento]"); if (!b) return;
+  pararToma(); sayEN(b.dataset.oirLento, { rate: "-35%" });
 });
 function scoresHTML(r) {
   const k = [["exactitud", "Exactitud"], ["fluidez", "Fluidez"], ["prosodia", "Entonación"], ["completitud", "Completitud"]].filter(([x]) => r[x] != null);
@@ -1197,13 +1197,27 @@ function step3() {
     <p><b>La misma parte, ahora con el texto en inglés: ${parteVideo().rango}.</b> Toca una línea para oírla de nuevo.</p>
     ${Sala.tactil && !store().get("pistaTraducir", false) ? `<p class="muted small lpista" id="trPista">Mantén presionada una línea para ver su traducción.</p>` : ""}
     <div class="rc-actions"><button class="primary big" id="cPlay">${IC.play}Ver con texto</button><button class="ghost" id="cSlow">${IC.play}0,75×</button></div>
-    <div class="transcript" id="tr">${lines.map((c, i) => `<div class="tlrow"><button class="tline" data-i="${i}" data-t="${c.t}"><span class="ts">${mmss(c.t)}</span> ${esc(c.text)}</button><button class="ttr" data-i="${i}" aria-label="Traducir esta línea" title="Traducir">ES</button></div>`).join("")}</div>
-    ${nextBtn(4)}`);
+    <button class="ghost wide" id="elIr">Elegir frases para practicar</button>
+    <p class="muted small" id="elPista" hidden>Toca las frases que quieras practicar. Puedes oírlas, repetirlas y guardarlas en tu repaso.</p>
+    <div class="transcript" id="tr">${lines.map((c, i) => `<div class="tlrow"><button class="tline" data-i="${i}" data-t="${c.t}"><span class="ts">${mmss(c.t)}</span> ${esc(c.text)}${Datos.has(c.text) ? ` <span class="el-ya" title="Ya está en tu repaso">✓</span>` : ""}</button><button class="ttr" data-i="${i}" aria-label="Traducir esta línea" title="Traducir">ES</button></div>`).join("")}</div>
+    <div class="el-barra" id="elBarra" hidden role="region" aria-label="Frases elegidas">
+      <span id="elN" aria-live="polite">0 elegidas</span>
+      <button class="primary" id="elPract" disabled>Practicar</button>
+      <button class="ghost" id="elGuardar" disabled>Guardar en mi repaso</button>
+      <button class="linklike" id="elSalir">Cancelar</button>
+    </div>
+    <div id="elPanel" hidden></div>
+    <div id="elFin">${nextBtn(4)}</div>`);
   on("cPlay", () => playTramo(1));
   on("cSlow", () => playTramo(0.75));
   let largo = false;   // la pulsación larga ya abrió la traducción: el toque que la suelta no reproduce
   for (const b of document.querySelectorAll(".tline")) {
-    b.onclick = () => { if (largo) { largo = false; return; } const c = lines[Number(b.dataset.i)]; playRange(c.t, c.t + c.d - 0.08, { text: c.text }); };   // termina donde empieza la siguiente, nunca después
+    b.onclick = () => {
+      if (largo) { largo = false; return; }
+      const i = Number(b.dataset.i);
+      if (eligiendo) { marcar(i); return; }
+      const c = lines[i]; playRange(c.t, c.t + c.d - 0.08, { text: c.text });   // termina donde empieza la siguiente, nunca después
+    };
     // Mantener presionada (medio segundo, sin mover el dedo) muestra la traducción debajo de la línea
     let tm = null, x0 = 0, y0 = 0;
     const cancela = () => { clearTimeout(tm); tm = null; };
@@ -1218,6 +1232,74 @@ function step3() {
     b.addEventListener("contextmenu", (e) => e.preventDefault());   // Android: sin el menú del sistema
   }
   for (const b of document.querySelectorAll(".ttr")) b.onclick = () => traducirLinea(Number(b.dataset.i));
+  /* ---- Elegir frases del texto: practicarlas aquí y guardarlas en el repaso ---- */
+  let eligiendo = false;
+  const elegidas = new Set();
+  const pintarBarra = () => {
+    const n = elegidas.size;
+    $("#elN").textContent = n ? `${n} ${n === 1 ? "elegida" : "elegidas"}` : "Ninguna elegida";
+    $("#elPract").disabled = $("#elGuardar").disabled = !n;
+  };
+  const marcar = (i) => {
+    if (elegidas.has(i)) elegidas.delete(i); else elegidas.add(i);
+    const b = document.querySelector(`.tline[data-i="${i}"]`);
+    b?.classList.toggle("sel", elegidas.has(i)); b?.setAttribute("aria-pressed", String(elegidas.has(i)));
+    pintarBarra();
+  };
+  const modoElegir = (on) => {
+    eligiendo = on;
+    $("#elIr").hidden = on; $("#elPista").hidden = !on; $("#elBarra").hidden = !on; $("#elFin").hidden = on;
+    $("#tr").classList.toggle("eligiendo", on);
+    for (const b of document.querySelectorAll(".tline")) { if (on) b.setAttribute("aria-pressed", String(elegidas.has(Number(b.dataset.i)))); else b.removeAttribute("aria-pressed"); }
+    if (on) { stopVideo(); Sala.stopAudio(); pintarBarra(); }
+    else { elegidas.clear(); for (const b of document.querySelectorAll(".tline.sel")) b.classList.remove("sel"); }
+  };
+  on("elIr", () => modoElegir(true));
+  on("elSalir", () => modoElegir(false));
+  const orden = () => [...elegidas].sort((a, b) => a - b);
+  // Se guarda como frase elegida (origen «manual»); si ya pediste su traducción, va con ella
+  function guardar(ids) {
+    const trad = store().get(CLAVE, {})[lid] || {};
+    let nuevas = 0, ya = 0;
+    for (const i of ids) {
+      const c = lines[i];
+      const row = Datos.addCard({ origen: "manual", escena: LS.row.titulo, correcta: c.text, tip: trad[c.text] || null, contexto: null, leccion_id: LS.row.id });
+      if (row) nuevas++; else ya++;
+      const b = document.querySelector(`.tline[data-i="${i}"]`);
+      if (b && !b.querySelector(".el-ya")) b.insertAdjacentHTML("beforeend", ` <span class="el-ya" title="Ya está en tu repaso">✓</span>`);
+    }
+    return `${nuevas ? `${nuevas === 1 ? "1 frase guardada" : `${nuevas} frases guardadas`} en tu repaso` : ""}${nuevas && ya ? " · " : ""}${ya ? `${ya === 1 ? "1 ya estaba" : `${ya} ya estaban`}` : ""}.`;
+  }
+  on("elGuardar", () => {
+    const msg = guardar(orden());
+    modoElegir(false);
+    $("#elMsg")?.remove();
+    $("#elFin").insertAdjacentHTML("afterbegin", `<p class="ok small" id="elMsg" role="status">${esc(msg)}</p>`);
+  });
+  on("elPract", () => practicar(orden(), 0));
+  function practicar(ids, k) {
+    const i = ids[k], c = lines[i], fin = c.t + c.d - 0.08;
+    stopRec(); stopVideo(); Sala.stopAudio();
+    $("#tr").hidden = $("#elBarra").hidden = $("#elPista").hidden = true;
+    const panel = $("#elPanel"); panel.hidden = false;
+    panel.innerHTML = `<div class="rc-ctx shadow">
+        <div class="segnav"><button class="mini" id="epPrev" ${k ? "" : "disabled"} aria-label="Frase anterior">‹</button>
+          <span>Frase ${k + 1} de ${ids.length}</span>
+          <button class="mini" id="epNext" ${k + 1 < ids.length ? "" : "disabled"} aria-label="Frase siguiente">›</button></div>
+        <span class="en">${esc(c.text)}</span>
+        <div class="rc-actions"><button class="ghost" id="epOir">${IC.play}Escuchar</button><button class="ghost" id="epLento">${IC.play}En lento</button></div>
+        <button class="primary" id="shGo">${IC.mic}Repetir esta frase</button><div id="shRes"></div>
+      </div>
+      <div class="rc-actions"><button class="ghost" id="epGuardar">${Datos.has(c.text) ? "✓ En tu repaso" : "Guardar estas en mi repaso"}</button><button class="linklike" id="epVolver">Volver al texto</button></div>`;
+    if (Datos.has(c.text) && ids.every((j) => Datos.has(lines[j].text))) $("#epGuardar").disabled = true;
+    on("epOir", () => playRange(c.t, fin, { text: c.text }));
+    on("epLento", () => { stopVideo(); sayEN(c.text, { rate: "-30%" }); });
+    on("shGo", () => shadow({ texto: c.text, inicio: c.t, fin }));
+    on("epPrev", () => practicar(ids, k - 1));
+    on("epNext", () => practicar(ids, k + 1));
+    on("epGuardar", () => { const msg = guardar(ids); const b = $("#epGuardar"); b.textContent = "✓ " + msg; b.disabled = true; });
+    on("epVolver", () => { stopRec(); stopVideo(); Sala.stopAudio(); panel.hidden = true; panel.innerHTML = ""; $("#tr").hidden = false; modoElegir(true); });
+  }
   // Una sola traducción a la vista: abrir otra cierra la anterior; tocar la traducción (o volver a pedir la misma) la cierra
   const CLAVE = "tradLineas", lid = LS.row.id;
   async function traducirLinea(i) {
