@@ -152,17 +152,41 @@ const SONIDOS = {
   "ɔɪ": ["Diptongo «oi».", "boy, choice"],
 };
 const FINALES = new Set(["t", "d", "s", "z", "k", "p", "b", "g", "v", "m", "n", "l"]);
-// Sonido más débil de una palabra (o null si todos salieron bien)
-function sonidoDebil(w) {
-  if (w.error === "Omission" || w.error === "Insertion" || !w.f?.length) return null;
+/* Azure compara con la pronunciación de diccionario, palabra por palabra. Al hablar seguido, un nativo
+   reduce las palabras pequeñas («them» → «'em») y une las palabras («sent them» → «sen'em»): eso no es un error
+   y no se marca, porque enseñaría a sonar menos natural. */
+const DEBILES = new Set(["a", "an", "the", "to", "for", "of", "and", "or", "but", "at", "from", "as", "than", "that", "can", "could", "would", "should",
+  "will", "have", "has", "had", "do", "does", "was", "were", "are", "am", "is", "be", "been", "them", "him", "her", "his", "us", "you", "your", "some", "there"]);
+const OCLUSIVAS = new Set(["t", "d", "k", "p", "b", "g"]);
+const esVocal = (ph) => /^[aeiouæɑɒɔəɛɜɝɚɪʊʌ]/.test(ph || "");
+const limpia = (w) => String(w || "").toLowerCase().replace(/[^a-z']/g, "");
+const esDebil = (w) => DEBILES.has(limpia(w.w)) && (w.score ?? 100) >= 40;   // muy mal dicha sí cuenta
+// ¿Este sonido cambió como cambia al hablar seguido? (sig = la palabra siguiente)
+function cambioNatural(w, i, x, sig) {
+  const f = w.f, ultimo = i === f.length - 1, prim = sig?.f?.[0]?.p, previo = f[i - 1]?.p;
+  if (ultimo && prim && !esVocal(prim) && OCLUSIVAS.has(x.p) && (x.s >= 20 || x.d)) return true;                 // «sent them», «next day»: la consonante se une o se pierde
+  if (ultimo && !sig && OCLUSIVAS.has(x.p) && x.s >= 30) return true;                       // al final de la frase la t, d, k o p casi no se suelta («client»)
+  if (x.p === "t" && ["d", "ɾ"].includes(x.d) && esVocal(previo) && (ultimo ? esVocal(prim) : esVocal(f[i + 1]?.p))) return true;   // «water», «get it»: la t suave del inglés americano
+  if ((x.p === "ə" && ["ɪ", "ʌ"].includes(x.d)) || (x.p === "ɪ" && x.d === "ə")) return true;   // vocales débiles que se cambian entre sí
+  if (ultimo && x.p === "d" && x.d === "t") return true;                                     // «-ed» que suena /t/ («worked»)
+  return false;
+}
+// Sonido más débil de una palabra (o null si todos salieron bien o solo cambió como cambia al hablar seguido)
+function sonidoDebil(w, sig) {
+  if (w.error === "Omission" || w.error === "Insertion" || !w.f?.length || esDebil(w)) return null;
   let peor = null;
-  w.f.forEach((x, i) => { if (x.s != null && x.s < 60 && (!peor || x.s < peor.s)) peor = { ...x, final: i === w.f.length - 1 }; });
+  w.f.forEach((x, i) => {
+    if (x.s == null || x.s >= 60 || cambioNatural(w, i, x, sig)) return;
+    if (!peor || x.s < peor.s) peor = { ...x, final: i === w.f.length - 1 };
+  });
+  if (peor) peor.otro = !!(peor.d && peor.d !== peor.p);   // se oyó otro sonido (no es que faltara)
   return peor;
 }
 function consejoSonido(x) {
   const t = SONIDOS[x.p];
   if (t) return t[0];
-  if (x.final && FINALES.has(x.p)) return "Es el sonido final: pronúncialo, no te lo comas.";
+  if (x.otro) return `Se oyó /${x.d}/ en lugar de /${x.p}/. Escucha la palabra en lento y fíjate en ese sonido.`;
+  if (x.final && FINALES.has(x.p)) return "Es el sonido final: pronúncialo, no te lo comas.";   // solo cuando casi no se oyó
   return "Escúchala en lento y repite ese sonido.";
 }
 // «/θ/ sonó como /s/» cuando Azure oyó otro sonido; si no, solo el sonido y su puntaje
@@ -172,7 +196,7 @@ function sonidoTexto(x) {
 // Una línea bajo la respuesta en la conversación: el sonido más débil del turno, o "" si todo salió bien
 function sonidoLinea(words) {
   let peor = null, en = "";
-  for (const w of words) { const x = sonidoDebil(w); if (x && (!peor || x.s < peor.s)) { peor = x; en = w.w; } }
+  words.forEach((w, i) => { const x = sonidoDebil(w, words[i + 1]); if (x && (!peor || x.s < peor.s)) { peor = x; en = w.w; } });
   if (!peor) return "";
   const como = peor.d && peor.d !== peor.p ? ` sonó como /${esc(peor.d)}/` : "";
   return `<div class="pron-linea"><b>Sonido para pulir:</b> /${esc(peor.p)}/ en «${esc(en)}»${como}. <span class="muted">${esc(consejoSonido(peor))}</span></div>`;
@@ -182,14 +206,14 @@ function pronResumen(words) {
   const sc = words.filter((w) => w.score != null && w.error !== "Insertion").map((w) => w.score);
   if (!sc.length) return null;
   const m = new Map();
-  for (const w of words) { const x = sonidoDebil(w); if (x) m.set(x.p, (m.get(x.p) || 0) + 1); }
+  words.forEach((w, i) => { const x = sonidoDebil(w, words[i + 1]); if (x) m.set(x.p, (m.get(x.p) || 0) + 1); });
   return { exactitud: Math.round(sc.reduce((a, b) => a + b, 0) / sc.length), palabras: sc.length, debiles: [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) };
 }
 // Los dos sonidos más débiles de toda la frase, con las palabras donde fallaron
 function sonidosHTML(words) {
   const m = new Map();
-  for (const w of words) {
-    const x = sonidoDebil(w); if (!x) continue;
+  for (const [i, w] of words.entries()) {
+    const x = sonidoDebil(w, words[i + 1]); if (!x) continue;
     const k = x.p, e = m.get(k) || { x, n: 0, palabras: new Set(), suma: 0 };
     e.n++; e.suma += x.s; e.palabras.add(w.w.toLowerCase()); if (x.d && x.d !== x.p) e.x = x;
     m.set(k, e);
@@ -210,10 +234,13 @@ function summarize(segs) {
   return out;
 }
 function wordsHTML(words) {
-  return `<p class="pwords">${words.map((w) => {
-    const cls = w.error === "Omission" ? "om" : w.error === "Insertion" ? "ins-w" : w.score == null ? "" : w.score >= 80 ? "good" : w.score >= 60 ? "mid" : "bad";
+  return `<p class="pwords">${words.map((w, i) => {
+    // una palabra pequeña reducida al hablar seguido se ve clara: así suena un nativo
+    // y una palabra media sin ningún sonido por corregir (solo cambió como cambia al hablar seguido) también
+    const x = w.score == null ? null : sonidoDebil(w, words[i + 1]), f = x ? `${sonidoTexto(x)}. ${consejoSonido(x)}` : "";
+    const limpio = w.score >= 60 && !x && w.f?.length;
+    const cls = w.error === "Omission" ? "om" : w.error === "Insertion" ? "ins-w" : w.score == null ? "" : w.score >= 80 || esDebil(w) || limpio ? "good" : w.score >= 60 ? "mid" : "bad";
     if (w.score == null) return `<span class="${cls}">${esc(w.w)}</span>`;
-    const x = sonidoDebil(w), f = x ? `${sonidoTexto(x)}. ${consejoSonido(x)}` : "";
     return `<button type="button" class="${cls}" data-w="${esc(w.w)}" data-sc="${esc(w.score)}" data-f="${esc(f)}" aria-label="${esc(w.w)}: ${esc(w.score)} de 100${f ? ". " + esc(f) : ""}">${esc(w.w)}</button>`;
   }).join(" ")}</p>`;
 }
