@@ -12,6 +12,7 @@ let queue = [], current = null, phase = "ask", heard = "", sim = null, rec = nul
 let repetida = null;   // tarjeta que ya se marcó «Otra vez» en esta vuelta
 let faltante = "", ayudada = false;   // lo que le faltó decir, y si ya vio ese final en esta vuelta
 let listenGen = 0, listenTimer = null, voiceMsg = "";   // listenGen invalida una escucha en curso al salir o avanzar
+let pron = [], sonidos = "";   // pronunciación por sonido del último intento hablado y su recuadro
 let repite = null;   // si el intento volvió a decir el error que corrige la tarjeta: { falto, repitio }
 
 function fmtWhen(d) {
@@ -106,7 +107,7 @@ function next() {
   Sala.stopAudio();   // que la frase anterior no siga sonando ni la capte el micrófono
   current = queue.shift() || null;
   repetida = null; ayudada = false; faltante = ""; repite = null;
-  phase = "ask"; heard = ""; sim = null; voiceMsg = "";
+  phase = "ask"; heard = ""; sim = null; voiceMsg = ""; pron = []; sonidos = "";
   render();
 }
 
@@ -162,10 +163,10 @@ function render() {
       <div class="rc-actions"><button class="ghost" id="rcStop">Listo</button></div>`;
   } else if (phase === "ok") {
     h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
-      <p class="rc-q" role="status">Bien dicho. Sigue la próxima frase…</p>`;
+      ${sonidos ? `${sonidos}<p class="rc-q" role="status">Bien dicha. Solo pule ese sonido.</p><div class="rc-actions"><button class="primary big" id="rcNext">Siguiente</button></div>` : `<p class="rc-q" role="status">Bien dicho. Sigue la próxima frase…</p>`}`;
   } else if (phase === "parcial") {
     h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
-      <div class="proof"><div class="row"><b>Te faltó</b><span class="ins">${esc(faltante)}</span></div></div>
+      <div class="proof"><div class="row"><b>Te faltó</b><span class="ins">${esc(faltante)}</span></div></div>${sonidos}
       <p class="rc-q" role="status">Bien el comienzo. Ahora dila completa.</p>
       <div class="rc-actions">
         <button class="primary big" id="rcSpeak">${IC.mic}Decirla completa</button>
@@ -174,7 +175,7 @@ function render() {
       <form id="rcType" class="row2"><input id="rcTypeBox" placeholder="…o escríbela" autocomplete="off" aria-label="Escribir la frase completa"><button class="ghost">OK</button></form>`;
   } else {
     const s = repite ? 1 : suggest(sim);   // repetir el error no es «Bien», aunque casi todas las palabras coincidan
-    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>` : "";
+    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>${sonidos}` : "";
     if (repite) h += `<div class="notice" data-kind="warn" role="status"><b>Se repitió el error.</b> ${[
       repite.repitio.length ? `Volviste a decir «${esc(repite.repitio.join(" "))}».` : "",
       repite.falto.length ? `Faltó «${esc(repite.falto.join(" "))}».` : "",
@@ -198,6 +199,7 @@ function wire() {
   on("rcAgain", open);
   on("rcHome", () => Sala.backHome());
   on("rcSpeak", listen);
+  on("rcNext", () => next());
   on("rcShow", () => reveal(""));
   on("rcStop", () => { if (rec) rec.parar(); });
   on("rcListen", () => leerTarjeta(current));
@@ -216,7 +218,7 @@ function otraVez() {
   if (repetida !== current.id) Datos.review(current, 1, { dicho: heard || null, similitud: sim });
   repetida = current.id;
   stopRec(); Sala.stopAudio();
-  phase = "ask"; heard = ""; sim = null; voiceMsg = ""; repite = null;
+  phase = "ask"; heard = ""; sim = null; voiceMsg = ""; repite = null; pron = []; sonidos = "";
   render();
 }
 
@@ -231,7 +233,7 @@ async function listen() {
   phase = "listening"; heard = ""; render();
   let oido;
   try {
-    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; });
+    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; }, { pron: true });
   } catch {
     if (gen === listenGen) { phase = "ask"; heard = ""; voiceMsg = "No se pudo activar la voz. Revisa el permiso del micrófono o escribe tu respuesta."; render(); }
     return;
@@ -242,7 +244,8 @@ async function listen() {
   const t = await oido.promesa;
   if (gen !== listenGen) return;
   clearTimeout(listenTimer); rec = null;
-  reveal((t || heard).trim());
+  pron = oido.palabras();
+  reveal((t || heard).trim(), true);
 }
 function stopRec() {
   listenGen++;   // lo que siga llegando de esta escucha ya no cuenta
@@ -258,17 +261,21 @@ const leerTarjeta = (c) => Sala.leerCorreccion(c.origen === "natural"
 // Dijo bien la frase: no hay nada que corregirle, se registra y sigue con la próxima.
 function acierto() {
   const c = current, gen = listenGen;
+  sonidos = window.Estudio?._sonidos?.(pron) || "";
   // Si acaba de ver la respuesta por «Otra vez», acertar no demuestra que la recuerde tanto como para espaciarla mucho.
   Datos.review(c, repetida === c.id || ayudada ? 3 : 4, { dicho: heard, similitud: sim });
   done++;
   phase = "ok";
   render();
+  if (sonidos) return;   // con un sonido por pulir no avanza solo: primero lo lees y tocas Siguiente
   setTimeout(() => { if (gen === listenGen && current === c) next(); }, 1500);
 }
 
-function reveal(said) {
+function reveal(said, hablado = false) {
   listenGen++;   // una escucha que aún estaba cargando no debe abrir el micrófono después
   heard = said;
+  if (!hablado) pron = [];   // escrito o «Mostrar respuesta»: no hay sonidos que evaluar
+  sonidos = window.Estudio?._sonidos?.(pron) || "";
   sim = said ? wordSim(said, current.correcta) : null;
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
   repite = errorRepetido(said, current);

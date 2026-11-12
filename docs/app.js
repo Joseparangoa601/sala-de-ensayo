@@ -579,20 +579,22 @@ function oidoDudoso(text, conf) {
 
 // Una sola frase fuera de la conversación (Repaso). Usa el mismo micrófono y reconocimiento de la conversación.
 let unaVez = null;
-async function escucharUnaVez(parcial) {
+// pron: además evalúa la pronunciación por sonido (sin frase de referencia: se evalúa lo que la persona dijo)
+async function escucharUnaVez(parcial, { pron = false } = {}) {
   if (!vadNode) await startMic(); else vadNode.start();
   let terminar;
   const promesa = new Promise((r) => { terminar = r; });
-  const u = unaVez = { parcial, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
+  const u = unaVez = { parcial, pron: pron ? [] : null, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
   return {
     promesa,
-    parar: async () => { const t = stt ? await closeStt() : u.cerrando ? await u.cerrando : ""; u.fin(t); },
+    palabras: () => u.pron || [],
+    parar: async () => { const s = stt; const t = s ? await closeStt() : u.cerrando ? await u.cerrando : ""; if (s && u.pron) u.pron.push(...s.pron); u.fin(t); },
     cancelar: () => { if (unaVez === u && stt) { stt.discard = true; closeStt(); } u.fin(""); },
   };
 }
 
 function onSpeechStart() {
-  if (unaVez) { if (!stt) { openStt(); for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; } } return; }
+  if (unaVez) { if (!stt) { openStt(!!unaVez.pron); for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; } } return; }
   if (S.state === "paused" || S.state === "idle" || turno.cerrando) return;
   if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
   if (player.playing?.coach) return;     // repetir en voz baja o un ruido no corta la corrección; se salta tocando el círculo
@@ -620,9 +622,10 @@ function isEcho(text, ref) {
 async function onSpeechEnd() {
   if (!stt) return;
   if (unaVez) {
-    const u = unaVez;
+    const u = unaVez, s = stt;
     u.cerrando = closeStt();
     const t = await u.cerrando;
+    if (u.pron) u.pron.push(...s.pron);
     if (t) u.fin(t);                     // sin texto sigue escuchando hasta Listo o el tope de tiempo
     return;
   }
@@ -671,7 +674,7 @@ async function cerrarTurno() {
   userSaid(text, { speechEnd: tEnd, sttDone: now() });
 }
 
-function openStt() {
+function openStt(conPron = false) {
   if (stt) { stt.discard = true; closeStt(); }
   const fmt = SDK.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1);
   const push = SDK.AudioInputStream.createPushStream(fmt);
@@ -680,12 +683,20 @@ function openStt() {
   cfg.outputFormat = SDK.OutputFormat.Detailed;   // trae la confianza de cada frase
   if (!turno.partes.length) confTurno.length = 0;
   const rec = new SDK.SpeechRecognizer(cfg, SDK.AudioConfig.fromStreamInput(push));
-  const sess = { rec, push, parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
+  if (conPron) {   // repaso: puntaje de cada sonido de lo que dijo (mismo audio, mismo costo)
+    try {
+      const pac = new SDK.PronunciationAssessmentConfig("", SDK.PronunciationAssessmentGradingSystem.HundredMark, SDK.PronunciationAssessmentGranularity.Phoneme, false);
+      pac.phonemeAlphabet = "IPA"; pac.nbestPhonemeCount = 1;
+      pac.applyTo(rec);
+    } catch (e) { logDebug("pronunciación " + e); }
+  }
+  const sess = { rec, push, pron: [], parts: [], partial: "", frames: 0, closed: false, discard: false, error: null, done: null, overTTS: S.state === "speaking" };
   sess.done = new Promise((resolve) => { sess.resolve = resolve; });
   rec.recognizing = (_s, e) => { sess.partial = e.result.text; if (!sess.discard) unaVez?.parcial?.([...sess.parts, sess.partial].join(" ")); if (!sess.discard && (S.bargeIn || S.state !== "speaking")) $("#live").textContent = [...turno.partes, ...sess.parts, sess.partial].join(" "); };
   rec.recognized = (_s, e) => {
     if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) {
       sess.parts.push(e.result.text);
+      if (conPron) { try { sess.pron.push(...(window.Estudio?._parseSeg?.(e.result)?.words || [])); } catch {} }
       const c = confianzaDe(e.result);
       if (c != null && !sess.discard) confTurno.push([c, e.result.text.split(/\s+/).length]);
     }
