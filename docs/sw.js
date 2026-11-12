@@ -1,12 +1,12 @@
 // Caché de la app: los archivos propios van primero a la red (siempre la última versión) y caen a caché sin conexión.
-const CACHE = "sala-v78";
+const CACHE = "sala-v79";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "scenes.js", "datos.js", "repaso.js", "estudio.js", "preparacion.js", "banco.json", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
 // Librerías con versión fija: caché aparte, sin versión, que no se borra al publicar (sin ellas la app no arranca offline)
 const LIBS = "sala-libs";
 const CDN = [
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
   "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.40.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js",
+  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js",
   "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js",
   "https://cdn.jsdelivr.net/npm/ts-fsrs@5.4.2/dist/index.umd.js",
 ];

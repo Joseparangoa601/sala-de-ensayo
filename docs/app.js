@@ -41,8 +41,22 @@ let sb = null;
 const icon = (n) => `<svg class="ii" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop"), trash: icon("trash"), hide: icon("hide") };
 function show(id) {
+  const antes = document.activeElement;
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
+  // El foco no se queda en un botón que ya no se ve: pasa al título de la pantalla nueva (lector de pantalla y teclado)
+  if (!antes || antes === document.body || antes.closest("[hidden]")) {
+    const t = document.getElementById(id)?.querySelector('h1, [role="heading"][aria-level="1"]');
+    if (t) { if (!t.hasAttribute("tabindex")) t.setAttribute("tabindex", "-1"); t.focus({ preventScroll: true }); }
+  }
 }
+// Lo que está en inglés se marca como inglés: el lector de pantalla lo pronuncia en inglés (WCAG 3.1.2)
+const EN_SEL = ".bubble, .en, .ins, .alt, .fixed, .del, .live, .pwords, .tline, .dict";
+function marcarIngles(raiz) {
+  if (raiz.nodeType !== 1) return;
+  if (raiz.matches(EN_SEL) && !raiz.lang) raiz.lang = "en";
+  for (const el of raiz.querySelectorAll(EN_SEL)) if (!el.lang) el.lang = "en";
+}
+new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) marcarIngles(n); }).observe(document.documentElement, { childList: true, subtree: true });
 function setState(st, caption) {
   S.state = st;
   const orb = $("#orb");
@@ -491,6 +505,21 @@ function f32ToI16(f) {
 const conTope = (p, ms, code) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code }), ms))]);
 const TOPE_MIC = 10000;
 
+/* Micrófono apagado de verdad cuando no se usa: en iPhone el punto naranja no debe quedar encendido en «Hoy» o en el repaso.
+   Solo fuera de una escena o con la escena en pausa; Continuar y la próxima escucha lo vuelven a abrir. */
+let vadPausaDesde = 0;
+function apagarMic() {
+  const st = micStream;
+  try { vadNode?.pause(); } catch {}
+  try { vadNode?.destroy?.(); } catch {}
+  vadNode = null; micStream = null; micLost = true;
+  st?.getTracks().forEach((t) => t.stop());
+}
+setInterval(() => {
+  if (!micStream || !vadPausaDesde || unaVez || stt || preparing) return;
+  if (S.scene && S.state !== "paused") return;
+  if (Date.now() - vadPausaDesde > 15000) apagarMic();
+}, 5000);
 async function startMic() {
   const pedido = navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -513,6 +542,10 @@ async function startMic() {
       onVADMisfire,
     }), TOPE_MIC, "vad_tope");
     vadNode.receive(source);
+    // Se anota desde cuándo está en pausa la detección de voz: si nadie la usa, el micrófono se apaga (ver apagarSiOcioso)
+    const vp = vadNode.pause.bind(vadNode), vs = vadNode.start.bind(vadNode);
+    vadNode.pause = () => { vadPausaDesde = Date.now(); return vp(); };
+    vadNode.start = () => { vadPausaDesde = 0; return vs(); };
     vadNode.start();
   } catch (e) {
     stream.getTracks().forEach((t) => t.stop());
@@ -864,9 +897,9 @@ async function correct(text, prev, bubble, conf) {
     if (!c.ok && !c.better) c.ok = true;
     S.usage.sonnetIn += c.usage?.input_tokens || 0; S.usage.sonnetOut += c.usage?.output_tokens || 0;
     if (/^(A1|A2|B1|B2|C1|C2)$/.test(c.cefr)) S.cefrVotes.push(c.cefr);
-    if (window.Datos && (!c.ok || c.natural)) {
-      Datos.addFromCorrection({ escena, dijiste: text, correcta: c.ok ? "" : c.better, nativo: c.natural, tip: c.tip, contexto: prev, leccion_id });
-    }
+    // Solo un error de verdad entra solo al repaso; una frase que estaba bien y tiene forma más natural se guarda con un toque
+    const tarjeta = { escena, dijiste: text, correcta: c.ok ? "" : c.better, nativo: c.natural, tip: c.tip, contexto: prev, leccion_id };
+    if (window.Datos && !c.ok) Datos.addFromCorrection(tarjeta);
     if (!c.ok && c.better && corrections) corrections.push({ original: text, better: c.better, tip: c.tip || "" });
     if (simulacro) { S.recapRender?.(); return; }
     if (!c.ok && c.better) bubble.querySelector(".bubble").innerHTML = wordDiff(text, c.better).said;
@@ -884,6 +917,12 @@ async function correct(text, prev, bubble, conf) {
       const b = document.createElement("button");
       b.type = "button"; b.className = "replay"; b.innerHTML = `${IC.mic}Dilo otra vez`;
       b.onclick = () => askRetry(target, card);
+      acts.appendChild(b);
+    }
+    if (c.ok && c.natural && window.Datos) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "replay"; b.textContent = "+ Guardar en mi repaso";
+      b.onclick = () => { Datos.addFromCorrection(tarjeta); b.disabled = true; b.textContent = "✓ En tu repaso"; };
       acts.appendChild(b);
     }
     if (acts.children.length) card.appendChild(acts);
@@ -1122,9 +1161,9 @@ function openScene() {
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
   addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
-  if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= 1800 && S.pase.segundos_usados < S.pase.segundos_total) notice("Te quedan menos de 30 minutos de voz en tu pase.");
+  if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
 }
-const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las horas de voz de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
+const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
 // Respuestas del servidor por pase o por tope diario, en palabras de la persona (null si no es ninguno de los dos)
 function limiteMsg(j) {
   if (j?.error === "sin_horas" || j?.code === "sin_horas") return paseMsg(j.motivo);
@@ -1140,7 +1179,11 @@ function marcarPase(hay) {
 }
 // Enlace de pago de Hotmart para comprar otro pase. Vacío hasta que José lo configure: entonces se ofrece escribir al correo.
 const COMPRA_URL = "";
-const AVISO_DIAS = 3, AVISO_SEG = 1800;   // avisar antes de que se acabe: 3 días o 30 minutos de voz
+// El pase se gasta por respuesta (80 s fijos cada una, en la base); se muestra en conversaciones de 15 respuestas
+const SEG_RESPUESTA = 80, RESP_CONVERSACION = 15, SEG_CONVERSACION = SEG_RESPUESTA * RESP_CONVERSACION;
+const conversaciones = (seg) => Math.floor(seg / SEG_CONVERSACION);
+const durVozConv = (seg) => { const n = conversaciones(seg); return n >= 1 ? `${n} ${n === 1 ? "conversación" : "conversaciones"}` : `${Math.floor(seg / SEG_RESPUESTA)} respuestas`; };
+const AVISO_DIAS = 3, AVISO_SEG = 2 * SEG_CONVERSACION;   // avisar antes de que se acabe: 3 días o 2 conversaciones
 // Días de calendario hasta la fecha (0 = hoy, 1 = mañana): «vence en 2 días» debe coincidir con la fecha que se muestra
 const diasHasta = (iso, ahora = Date.now()) => { const d = new Date(iso), h = new Date(ahora); return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(h.getFullYear(), h.getMonth(), h.getDate())) / 864e5); };
 const cuandoVence = (dias) => dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias} días`;
@@ -1152,10 +1195,10 @@ function estadoPase(p, ahora = Date.now()) {
   const fin = new Date(p.vence).toLocaleDateString("es", { day: "numeric", month: "long" });
   if (p.activo === false) return { fin: true, corto: "Tu pase ya no está activo", hoy: "Tu pase ya no está activo. No se cobró nada más." };
   if (ahora >= vence) return { fin: true, corto: `Terminó el ${fin}`, hoy: `Tu pase terminó el ${fin}. No se cobró nada más.` };
-  if (!seg) return { fin: true, corto: "Usaste todas tus horas", hoy: "Usaste todas las horas de voz de tu pase. No se cobró nada más." };
-  const corto = `Te quedan ${durVoz(seg)} de voz · hasta el ${fin}`;
-  if (dias <= AVISO_DIAS) return { alerta: true, corto, hoy: `Tu pase vence ${cuandoVence(dias)} y te quedan ${durVoz(seg)} de voz. No se renueva solo.` };
-  if (seg <= AVISO_SEG) return { alerta: true, corto, hoy: `Te quedan ${durVoz(seg)} de voz en tu pase (hasta el ${fin}).` };
+  if (seg < SEG_RESPUESTA) return { fin: true, corto: "Usaste todas tus conversaciones", hoy: "Usaste todas las conversaciones de tu pase. No se cobró nada más." };
+  const corto = `Te quedan ${durVozConv(seg)} · hasta el ${fin}`;
+  if (dias <= AVISO_DIAS) return { alerta: true, corto, hoy: `Tu pase vence ${cuandoVence(dias)} y te quedan ${durVozConv(seg)}. No se renueva solo.` };
+  if (seg <= AVISO_SEG) return { alerta: true, corto, hoy: `Te quedan ${durVozConv(seg)} en tu pase (hasta el ${fin}).` };
   return { corto, hoy: corto };
 }
 // Muestra el pase en Tú (tarjeta con el detalle) y en Hoy (una línea; avisa antes de que se acabe). Sin fila no hay tope y no se muestra nada.
@@ -1173,9 +1216,9 @@ async function paintPase() {
     const e = estadoPase(data), seg = Math.max(0, data.segundos_total - data.segundos_usados);
     const usado = Math.min(1, data.segundos_usados / data.segundos_total);
     $("#paseNow").textContent = e.corto;
-    $("#paseHoras").innerHTML = `<b>${durVoz(seg)}</b> de voz de ${durVoz(data.segundos_total)} en total`;
+    $("#paseHoras").innerHTML = `<b>${durVozConv(seg)}</b> de ${conversaciones(data.segundos_total)} en total`;
     $("#paseBarra i").style.width = Math.round(usado * 100) + "%";
-    $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus horas de voz`);
+    $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus conversaciones`);
     $("#paseVence").textContent = e.fin ? e.hoy : `Vence el ${new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "long" })} (${cuandoVence(diasHasta(data.vence))}).`;
     $("#paseComprar").hidden = !COMPRA_URL; if (COMPRA_URL) $("#paseComprar").href = COMPRA_URL;
     $("#paseMas").hidden = !!COMPRA_URL;
@@ -1398,8 +1441,13 @@ function renderHome() {
   $("#goalsNow").textContent = gs || "Para qué quieres el inglés";
   marcarPase(store.get("conPase", false));
   paintPase();
-  $("#goalsNudge").hidden = !!gs || !store.get("perfilSynced", false);
-  $("#levelNudge").hidden = store.get("level", null) !== null || !!t;   // solo a quien nunca eligió nivel ni hizo el test
+  // Primer día: un paso a la vez. Primero para qué quieres el inglés, luego el nivel; la semana y las otras escenas esperan.
+  // Quien entra con pase viene a preparar su entrevista: no se le piden objetivos (ver styles.css, con-pase)
+  const faltaObjetivo = !gs && store.get("perfilSynced", false) && !document.body.classList.contains("con-pase");
+  const faltaNivel = store.get("level", null) === null && !t;   // solo a quien nunca eligió nivel ni hizo el test
+  $("#goalsNudge").hidden = !faltaObjetivo;
+  $("#levelNudge").hidden = !faltaNivel || faltaObjetivo;
+  $("#homeBody").classList.toggle("primer-dia", faltaObjetivo || faltaNivel);
   $("#rateSel").value = String(S.rate);
   $("#bargeChk").checked = S.bargeIn;
   $("#corrChk").checked = S.voiceCorr;
@@ -1467,7 +1515,8 @@ function renderToday() {
   const due = Datos.due().length, scene = sceneOfDay();
   const did = TODAY.practiced || store.get("practicaHoy", "") === dayKey();
   const items = [];
-  if (due) items.push({ a: "review", t: `Repasa ${due} ${due === 1 ? "frase" : "frases"}`, s: "Tus errores, antes de que se olviden" });
+  // Unos 25 s por frase (estimado: decirla, ver la respuesta y calificar)
+  if (due) items.push({ a: "review", t: `Repasa ${due} ${due === 1 ? "frase" : "frases"} · ${Math.max(1, Math.round(due * 25 / 60))} min`, s: "Tus errores, antes de que se olviden" });
   if (scene && !document.body.classList.contains("con-pase")) items.push({ a: "scene", done: did, t: did ? "Ya conversaste hoy" : `Conversa: ${scene.title}`, s: did ? `Si quieres más: ${scene.title}` : `Con ${scene.name}` });
   const next = items.find((i) => !i.done);
   if (TODAY.lesson) items.push({ a: "lesson", t: "Sigue tu lección", s: `${TODAY.lesson.titulo || "Lección"} · paso ${TODAY.lesson.progreso?.paso || 1} de 6`, optional: true });
@@ -1569,7 +1618,7 @@ function wire() {
       S.history.push({ role: "user", content: dicho }); addBubble("user", dicho);
       S.sesion.turnos++; S.sesion.palabras_jose += countWords(dicho);
     }
-    pauseSession(""); const scene = S.scene, ses = S.sesion, list = S.corrections || [], from = scene?.returnTo, hist = S.history || []; S.scene = null; S.sesion = null; S.retry = null;
+    pauseSession(""); apagarMic(); const scene = S.scene, ses = S.sesion, list = S.corrections || [], from = scene?.returnTo, hist = S.history || []; S.scene = null; S.sesion = null; S.retry = null;
     const leave = () => { if (S.prueba) return; if (from && window.Estudio) Estudio.reopen(from, ses?.turnos > 0); else { renderHome(); show("home"); } };
     if (scene && ses?.turnos > 0) showRecap(scene, ses, list, leave, hist); else leave();
   };

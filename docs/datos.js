@@ -99,13 +99,25 @@ async function sync() {
   return syncing;
 }
 
+// Tope de frases nuevas por día (estilo Anki). Se cuenta en este equipo; si un día se repasa en dos, el tope se estira un poco.
+const NUEVAS_DIA = 15;
+const hoyKey = () => { const d = new Date(); return `nuevasHoy:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+function nuevasHoy() { try { return Number(localStorage.getItem(hoyKey())) || 0; } catch { return 0; } }
+function contarNueva() { try { localStorage.setItem(hoyKey(), String(nuevasHoy() + 1)); } catch {} }
 const Datos = {
   init(client) { sb = client; sync(); window.addEventListener("online", sync); setInterval(sync, 60_000); },
   onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   sync,
   pendingWrites: () => queue.length,
   all: () => cards.filter((c) => !c.archivada),
-  due(now = new Date()) { return cards.filter((c) => !c.archivada && new Date(c.due) <= now).sort((a, b) => new Date(a.due) - new Date(b.due)); },
+  // Lo pendiente de hoy: todos los repasos que tocan y, como máximo, NUEVAS_DIA frases nuevas (las que nunca se repasaron).
+  // Así el cuaderno nunca amanece con una montaña: las nuevas que sobran esperan al día siguiente.
+  due(now = new Date()) {
+    const toca = cards.filter((c) => !c.archivada && new Date(c.due) <= now).sort((a, b) => new Date(a.due) - new Date(b.due));
+    let cupo = Math.max(0, NUEVAS_DIA - nuevasHoy());
+    return toca.filter((c) => (c.reps || 0) > 0 || cupo-- > 0);
+  },
+  nuevasPendientes: () => cards.filter((c) => !c.archivada && !(c.reps > 0)).length,
 
   // Guarda una corrección de la conversación como tarjeta (sin duplicar la misma forma correcta)
   addFromCorrection({ escena, dijiste, correcta, nativo, tip, contexto, leccion_id = null }) {
@@ -126,6 +138,7 @@ const Datos = {
   // Registra un repaso: rating 1=Otra vez 2=Difícil 3=Bien 4=Fácil
   review(card0, rating, { dicho = null, similitud = null } = {}) {
     const card = live(card0);
+    if (!(card.reps > 0)) contarNueva();
     const now = new Date();
     // El azar de FSRS depende del momento: se usa el del preview para que coincida con lo que decía el botón
     const at = previewAt?.id === card.id && now - previewAt.now < 600_000 ? previewAt.now : now;

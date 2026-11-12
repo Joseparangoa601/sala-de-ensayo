@@ -486,3 +486,15 @@ a.wide{display:flex;align-items:center;justify-content:center;text-align:center;
 .el-barra #elN{flex:1 0 100%;font-weight:600}
 .el-barra .primary,.el-barra .ghost{flex:1 1 auto}
 .chip-elegida{display:inline-block;font-size:.78em;font-weight:600;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--ink);margin-right:6px}
+[tabindex="-1"]:focus{outline:none}
+.subir{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;cursor:pointer}
+.pasos-crear{margin:8px 0;padding-left:1.4em;display:flex;flex-direction:column;gap:8px;color:var(--muted)}
+.pasos-crear li.hecho{color:var(--ink)}
+.pasos-crear li.hecho::marker{content:"✓  ";color:var(--ins)}
+.pasos-crear li.ahora{color:var(--ink);font-weight:600}
+@media (prefers-reduced-motion:no-preference){.pasos-crear li.ahora{animation:latido 1.6s ease-in-out infinite}}
+@keyframes latido{50%{opacity:.55}}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+input.sr:focus-visible + .subir{outline:3px solid var(--accent);outline-offset:2px}
+/* Primer día en «Hoy»: solo lo que toca ahora */
+.primer-dia #week,.primer-dia #hoyScenes,.primer-dia .top:has(#masTitulo){display:none}

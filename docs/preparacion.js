@@ -21,6 +21,38 @@ const historias = () => P.row?.historias ?? [];
 const respuestas = (id) => P.intentos.filter((x) => x.tipo === "respuesta" && x.pregunta_id === id);
 const mejor = (id) => { const r = respuestas(id); return r.length ? Math.max(...r.map((x) => x.puntaje ?? 0)) : null; };
 const completa = (h) => !!(h.situacion?.trim() && h.accion?.trim() && h.resultado?.trim());
+/* ---------------- hoja de vida desde un archivo: el texto se saca en el teléfono, nada se sube hasta crear el expediente ---------------- */
+const LIB_PDF = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+const LIB_PDF_W = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+const LIB_DOCX = "https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js";
+const cargado = {};
+const cargar = (src) => cargado[src] ||= new Promise((ok, mal) => {
+  const t = document.createElement("script"); t.src = src; t.onload = ok; t.onerror = () => { delete cargado[src]; mal(new Error("lib")); };
+  document.head.appendChild(t);
+});
+async function textoDeArchivo(f) {
+  const nombre = (f.name || "").toLowerCase();
+  if (f.type === "application/pdf" || nombre.endsWith(".pdf")) {
+    await cargar(LIB_PDF);
+    const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = LIB_PDF_W;
+    const doc = await lib.getDocument({ data: await f.arrayBuffer() }).promise;
+    const paginas = [];
+    for (let i = 1; i <= Math.min(doc.numPages, 8); i++) {
+      const c = await (await doc.getPage(i)).getTextContent();
+      // Cada renglón del PDF en su línea: así las fechas y los cargos no quedan pegados
+      let linea = "", y = null; const out = [];
+      for (const it of c.items) { const yy = it.transform?.[5]; if (y != null && Math.abs(yy - y) > 2) { out.push(linea); linea = ""; } linea += (linea && !linea.endsWith(" ") ? " " : "") + it.str; y = yy; }
+      out.push(linea); paginas.push(out.map((l) => l.trim()).filter(Boolean).join("\n"));
+    }
+    return paginas.join("\n\n");
+  }
+  if (nombre.endsWith(".docx") || f.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    await cargar(LIB_DOCX);
+    return (await window.mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
+  }
+  if (nombre.endsWith(".txt") || f.type.startsWith("text/")) return await f.text();
+  throw new Error("tipo");
+}
 const friendly = {
   cv_corta: "Pega tu hoja de vida completa: lo que hay es muy poco para preparar historias reales.",
   oferta_corta: "Pega el texto completo de la oferta.",
@@ -33,11 +65,12 @@ const failMsg = (j) => Sala.limiteMsg(j) || friendly[j?.error] || "No pude compl
 async function load() {
   const [a, b, c] = await Promise.all([
     sb().from("expediente").select("*").maybeSingle(),
-    sb().from("expediente_intentos").select("id,tipo,pregunta_id,puntaje,creado,evaluacion").order("creado", { ascending: true }).limit(800),
+    sb().from("expediente_intentos").select("*").order("creado", { ascending: true }).limit(800),
     sb().from("sesiones").select("evaluacion,inicio").eq("escena", SIM).not("evaluacion", "is", null).order("inicio", { ascending: true }).limit(60),
   ]);
   if (a.error) throw a.error;
-  P.row = a.data; P.intentos = b.data ?? []; P.sims = c.data ?? [];
+  // Solo los intentos de este expediente: los de una oferta anterior tenían otras preguntas (se conservan, no se mezclan)
+  P.row = a.data; P.intentos = (b.data ?? []).filter((x) => !P.row?.iniciado || x.expediente_iniciado === P.row.iniciado); P.sims = c.data ?? [];
 }
 
 async function open() {
@@ -69,13 +102,34 @@ function form(entrada) {
     ${oferta ? `<label for="fEmpresa">Empresa (opcional)</label><input id="fEmpresa" maxlength="120">
     <label for="fFecha">Fecha de la entrevista (opcional)</label><input id="fFecha" type="date">
     <label for="fOferta">Texto completo de la oferta</label><textarea id="fOferta" rows="7" maxlength="8000" placeholder="Pega aquí el aviso"></textarea>` : ""}
-    <label for="fCv">Tu hoja de vida</label><textarea id="fCv" rows="9" maxlength="12000" placeholder="Pega aquí el texto de tu hoja de vida"></textarea>
+    <label for="fCv">Tu hoja de vida</label>
+    <input id="fArchivo" type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" class="sr">
+    <label class="ghost wide subir" for="fArchivo">${IC.pen}Subir mi hoja de vida (PDF o Word)</label>
+    <p class="small" id="fArchivoMsg" role="status"></p>
+    <textarea id="fCv" rows="9" maxlength="12000" placeholder="…o pega aquí el texto de tu hoja de vida"></textarea>
     <p class="muted small">Tu hoja de vida se guarda en tu cuenta y se procesa con inteligencia artificial para preparar tus respuestas. Puedes borrarla cuando quieras. La app solo usa datos que estén en lo que pegas.</p>
     <div id="fErr"></div>
     <button class="primary wide" id="fGo">Crear mi expediente</button>`);
+  $("#fArchivo").onchange = async (e) => {
+    const f = e.target.files?.[0], msg = $("#fArchivoMsg"); if (!f) return;
+    msg.className = "small muted"; msg.textContent = `Leyendo «${f.name}»…`;
+    try {
+      const t = (await textoDeArchivo(f)).replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      const palabras = (t.match(/\S+/g) || []).length;
+      if (palabras < 30) { msg.className = "small"; msg.textContent = "No encontré texto en ese archivo: puede ser una imagen escaneada. Súbelo en Word o pega el texto."; return; }
+      $("#fCv").value = t.slice(0, 12000); $("#fErr").innerHTML = "";
+      msg.className = "small ok"; msg.textContent = `Listo: leí ${palabras} palabras. Revisa abajo que esté todo bien antes de crear tu expediente.`;
+    } catch (x) {
+      msg.className = "small"; msg.textContent = x?.message === "tipo" ? "Ese tipo de archivo no lo puedo leer. Usa PDF o Word (.docx)." : "No pude leer el archivo. Revisa tu conexión o pega el texto.";
+    } finally { e.target.value = ""; }
+  };
   on("fGo", async () => {
-    const btn = $("#fGo"); btn.disabled = true; btn.textContent = "Enviando…";
+    const btn = $("#fGo");
     const v = (id) => document.getElementById(id)?.value.trim() || "";
+    // Las mismas reglas que el servidor, antes de enviar: el aviso aparece sin esperar
+    const falta = v("fCv").length < 150 ? "cv_corta" : oferta && v("fOferta").length < 80 ? "oferta_corta" : !oferta && v("fCargo").length < 3 ? "sin_cargo" : null;
+    if (falta) { $("#fErr").innerHTML = E()._err(friendly[falta]); return; }
+    btn.disabled = true; btn.textContent = "Enviando…";
     try {
       const r = await Sala.fnFetch("entrevista", { modo: "crear", entrada, cv: v("fCv"), oferta: v("fOferta"), cargo: v("fCargo"), empresa: v("fEmpresa"), fecha: v("fFecha") || null, level: Sala.level() });
       const j = await r.json().catch(() => ({}));
@@ -84,13 +138,24 @@ function form(entrada) {
     } catch (j) { $("#fErr").innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = "Crear mi expediente"; }
   });
 }
+const PASOS_CREAR = [[0, "Leyendo tu hoja de vida"], [15, "Buscando tus historias reales"], [35, "Armando las preguntas que te harían"], [60, "Conectando tus historias con el cargo"], [90, "Últimos detalles"]];
 async function waitCreate() {
-  const g = scr("Modo entrevista", "Creando tu expediente", null);
-  paint(`<h1>Estoy leyendo tu hoja de vida</h1><p class="muted">Busco tus historias reales y las preguntas que te harían. Tarda cerca de un minuto. Puedes salir y volver.</p>`);
+  const g = scr("Modo entrevista", "Creando tu expediente", () => Sala.backHome(), "‹ Inicio");
+  paint(`<h1>Estoy armando tu expediente</h1>
+    <ol class="pasos-crear" id="cPasos">${PASOS_CREAR.map(([, t]) => `<li>${t}</li>`).join("")}</ol>
+    <p class="muted small" id="cSeg" role="status">Suele tardar cerca de un minuto.</p>
+    <p class="muted small">Puedes salir: el expediente se sigue armando y lo encuentras listo al volver.</p>`);
   const t0 = Date.now();
+  const pintar = () => {
+    const s = Math.round((Date.now() - t0) / 1000), k = PASOS_CREAR.filter(([d]) => s >= d).length - 1;
+    document.querySelectorAll("#cPasos li").forEach((li, i) => { li.className = i < k ? "hecho" : i === k ? "ahora" : ""; li.toggleAttribute("aria-current", i === k); });
+    const el = $("#cSeg"); if (el) el.textContent = s < 60 ? `Van ${s} segundos. Suele tardar cerca de un minuto.` : `Van ${s} segundos. Esta vez va más lento; sigo esperando.`;
+  };
+  pintar();
   while (g === run && Date.now() - t0 < 240000) {
     await sleep(3500);
     if (g !== run) return;
+    pintar();
     let row = null;
     try { ({ data: row } = await sb().from("expediente").select("estado").maybeSingle()); } catch {}
     if (row?.estado === "listo") { return open(); }
@@ -101,7 +166,13 @@ async function waitCreate() {
 function createFailed() {
   scr("Modo entrevista", "", null);
   paint(E()._err("No se pudo crear el expediente.") + `<button class="primary wide" id="pAgain">Empezar otra vez</button>`);
-  on("pAgain", async () => { await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; start(); });
+  on("pAgain", async () => {
+    let row = null;
+    try { ({ data: row } = await sb().from("expediente").select("estado,actualizado").maybeSingle()); } catch {}
+    if (row?.estado === "listo") return open();
+    if (row?.estado === "creando" && Date.now() - Date.parse(row.actualizado) < 300000) return waitCreate();   // todavía trabaja: no se borra lo que está por terminar
+    await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; start();
+  });
 }
 
 /* ---------------- índice y plan: los calcula el código, siempre con la misma fórmula ---------------- */

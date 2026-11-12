@@ -82,14 +82,14 @@
   <div class="pad stack homebody" id="homeBody">
     <div class="tabpanel" data-tab="hoy">
       <header class="top"><div><div class="brandline"><svg><use href="#mark"/></svg><span>Sala de Ensayo · lead10x</span></div><h1 style="margin-top:6px">Hoy</h1><span class="muted small" id="streak"></span></div></header>
-      <div class="tiles one"><button class="tile" id="prepBtn"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Modo entrevista</b><small>Tu expediente, tus historias y el simulacro</small></span></button></div>
-      <button class="muted small pase-hoy" id="paseHoy" type="button" hidden></button>
-      <div class="week" id="week"></div>
-      <div class="today" id="today"></div>
       <div class="notice" id="levelNudge" data-kind="info" hidden><b>¿Qué tan bien hablas inglés hoy?</b> Así los personajes te hablan a tu medida. Puedes cambiarlo cuando quieras.
         <div class="chips lvchips"><button class="chip" data-lv="A2">Básico · A2</button><button class="chip" data-lv="B1">Intermedio · B1</button><button class="chip" data-lv="B2">Intermedio alto · B2</button><button class="chip" data-lv="C1">Avanzado · C1</button></div>
         <button class="linklike" id="levelTest">No sé: hacer el test de nivel</button></div>
       <div class="notice" id="goalsNudge" hidden><b>Primero, cuéntale a la app para qué quieres el inglés.</b> Así las conversaciones y las lecciones se ajustan a tu vida. <button class="primary wide" id="goalsNudgeBtn">Definir mis objetivos</button></div>
+      <div class="tiles one"><button class="tile" id="prepBtn"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Modo entrevista</b><small>Tu expediente, tus historias y el simulacro</small></span></button></div>
+      <button class="muted small pase-hoy" id="paseHoy" type="button" hidden></button>
+      <div class="week" id="week"></div>
+      <div class="today" id="today"></div>
       <div class="top"><h2 id="masTitulo">Practica también</h2><button class="ghost" id="allScenes">Ver todas</button></div>
       <div class="scenes" id="hoyScenes"></div>
     </div>
@@ -123,9 +123,9 @@
         <p id="paseHoras"></p>
         <p id="paseVence"></p>
         <p class="small"><b>Pago único.</b> No se renueva ni se cobra solo: al terminar, la app no te cobra nada más.</p>
-        <p class="muted small">Gastan horas solo las conversaciones con un personaje, hablando o escribiendo. Cada respuesta cuenta el tiempo desde la anterior, hasta 2 minutos; después de una pausa larga cuenta 30 segundos. Repasar, las lecciones y el test de nivel no gastan horas.</p>
-        <a class="primary wide" id="paseComprar" target="_blank" rel="noopener" hidden>Comprar otro pase · suma 5 h y 30 días</a>
-        <p class="muted small" id="paseMas">¿Quieres más tiempo? Escríbenos a contacto@lead10x.com.co. Otro pase suma 5 horas y 30 días a lo que te queda.</p>
+        <p class="muted small"><b>Habla a tu ritmo:</b> cada respuesta a un personaje cuenta igual, tardes lo que tardes. Una conversación son unas 15 respuestas. Repasar, las lecciones y el test de nivel no gastan tu pase.</p>
+        <a class="primary wide" id="paseComprar" target="_blank" rel="noopener" hidden>Comprar otro pase · suma 15 conversaciones y 30 días</a>
+        <p class="muted small" id="paseMas">¿Quieres más tiempo? Escríbenos a contacto@lead10x.com.co. Otro pase suma 15 conversaciones y 30 días a lo que te queda.</p>
         <p class="muted small">¿No te sirvió? Tienes 7 días de garantía desde la compra: pide el reembolso en <a href="https://refund.hotmart.com/" target="_blank" rel="noopener">refund.hotmart.com</a> y te devuelven todo el dinero.</p>
       </div>
       </details>
@@ -166,7 +166,7 @@
 <section class="screen" id="study" hidden>
   <header class="talkbar">
     <button class="ghost" id="studyBack" aria-label="Volver">‹ Inicio</button>
-    <div class="titles"><strong id="studyTitle"></strong><span id="studySub"></span></div>
+    <div class="titles"><strong id="studyTitle" role="heading" aria-level="1"></strong><span id="studySub"></span></div>
     <span style="width:64px"></span>
   </header>
   <div class="logwrap" id="studyWrap"><div class="pad stack" id="studyBody" aria-live="polite"></div></div>
@@ -209,7 +209,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.40.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ts-fsrs@5.4.2/dist/index.umd.js"></script>
 <script src="config.js"></script>
