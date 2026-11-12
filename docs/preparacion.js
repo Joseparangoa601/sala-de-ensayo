@@ -251,6 +251,7 @@ function result(q, opts, texto, j, pron) {
     <div class="reto"><span class="lbl">Para el próximo intento</span><span>${esc(v.siguiente_es)}</span></div>
     <div class="rc-ctx"><b>Tu versión más fuerte</b><span class="en">${marks(v.version_fuerte_en)}</span>
       ${/\[/.test(v.version_fuerte_en) ? `<span class="muted small">Lo que está entre corchetes solo lo sabes tú. Cámbialo por tu dato real.</span>` : ""}
+      ${(v.confirmar || []).length ? `<span class="small"><b>Confirma antes de decirlo:</b> ${v.confirmar.map((n) => `«${esc(n)}»`).join(", ")} ${v.confirmar.length === 1 ? "no aparece" : "no aparecen"} en tu hoja de vida. Si es exacto, ten a mano cómo lo mediste: en la entrevista te lo pueden preguntar.</span>` : ""}
       ${usa.length ? `<span class="muted small">Tomado de tu expediente, confírmalo: ${esc(usa.join("; "))}</span>` : ""}
       <button class="replay" id="rListen">Escuchar</button></div>
     ${v.ingles?.better ? `<div class="rc-ctx"><b>${v.ingles.ok ? "✓ Tu inglés está correcto" : "Tu inglés, corregido"}</b><span class="en">${esc(v.ingles.better)}</span>${v.ingles.natural ? `<span class="muted small">Más natural: <span class="en">${esc(v.ingles.natural)}</span></span>` : ""}${v.ingles.tip_es ? `<span class="muted small">${esc(v.ingles.tip_es)}</span>` : ""}</div>` : ""}
