@@ -520,7 +520,25 @@ setInterval(() => {
   if (S.scene && S.state !== "paused") return;
   if (Date.now() - vadPausaDesde > 15000) apagarMic();
 }, 5000);
+/* La detección de voz (onnxruntime, 127 KB comprimido, + vad) se carga al abrir el micrófono por primera vez,
+   o en reposo unos segundos después de abrir la app: el inicio no la espera */
+const LIB_ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js";
+const LIB_VAD = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js";
+let vadLista = null;
+const cargarScript = (src) => new Promise((ok, mal) => {
+  const t = document.createElement("script"); t.src = src; t.onload = ok; t.onerror = () => { t.remove(); mal(new Error("lib_voz")); };
+  document.head.appendChild(t);
+});
+function cargarVad() {
+  return vadLista ||= (async () => { if (!window.ort) await cargarScript(LIB_ORT); if (!window.vad) await cargarScript(LIB_VAD); })()
+    .catch((e) => { vadLista = null; throw e; });
+}
+function precargarVad() {
+  const ya = () => cargarVad().catch(() => {});
+  setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(ya, { timeout: 4000 }) : ya()), 2500);
+}
 async function startMic() {
+  await cargarVad();
   const pedido = navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
@@ -1728,8 +1746,9 @@ async function boot() {
   window.visualViewport?.addEventListener("resize", fitViewport);
   window.visualViewport?.addEventListener("scroll", fitViewport);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  precargarVad();
   if (!configured()) { show("setup"); return; }
-  if (!SDK || !window.vad || !window.supabase) { show("setup"); $("#setupTitle").textContent = "No se pudo abrir"; $("#setupMsg").textContent = "No cargaron las librerías de la app. Revisa tu conexión y vuelve a abrir la app."; return; }
+  if (!SDK || !window.supabase) { show("setup"); $("#setupTitle").textContent = "No se pudo abrir"; $("#setupMsg").textContent = "No cargaron las librerías de la app. Revisa tu conexión y vuelve a abrir la app."; return; }
   // Enlace del correo de bienvenida o de recuperación: se lee antes de que la librería limpie la dirección
   const enlace = location.hash;
   if (/type=(invite|recovery)/.test(enlace)) store.set("forzarClave", "nueva");

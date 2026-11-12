@@ -23,6 +23,10 @@ const mejor = (id) => { const r = respuestas(id); return r.length ? Math.max(...
 const completa = (h) => !!(h.situacion?.trim() && h.accion?.trim() && h.resultado?.trim());
 /* Avance de cada historia: sus prácticas se guardan con la pregunta h1…h5 */
 const deHistoria = (i) => respuestas("h" + (i + 1));
+/* En voz alta: respuestas grabadas con el micrófono (marcadas desde v81) + cada respuesta de un simulacro */
+const enVoz = (r) => r.filter((x) => x.evaluacion?.en_voz === true).length;
+const vecesEnVoz = () => enVoz(P.intentos.filter((x) => x.tipo === "respuesta"))
+  + P.intentos.filter((x) => x.tipo === "simulacro").reduce((a, x) => a + (x.evaluacion?.respuestas?.length ?? 0), 0);
 const avanceTxt = (r) => (r.length > 1 ? `${r[0].puntaje} → ${r[r.length - 1].puntaje}` : r.length ? `${r[0].puntaje}` : "");
 /* Tablero: en el último intento de cada pregunta o historia, cuántas respuestas cumplen cada criterio */
 function tablero() {
@@ -243,6 +247,7 @@ function hub() {
     ${pendiente() ? `<div class="notice" data-kind="info"><b>Tienes un simulacro sin informe.</b> Quedó guardado en este teléfono. <button class="primary wide" id="pPend">Pedir el informe</button><button class="linklike" id="pPendNo">Descartarlo</button></div>` : ""}
     <div class="prep-ix"><b>${ix.total}</b><span><strong>${esc(etapa(ix.total))}</strong><small>Índice de preparación de 0 a 100</small></span></div>
     <div class="kpis"><div><small>Preguntas</small><b>${ix.buenas}/${preguntas().length}</b></div><div><small>Historias</small><b>${hs.filter(completa).length}/5</b></div><div><small>Simulacros</small><b>${P.intentos.filter((x) => x.tipo === "simulacro").length}</b></div></div>
+    ${vecesEnVoz() ? `<p class="small"><b>Ensayaste en voz alta ${vecesEnVoz()} ${vecesEnVoz() === 1 ? "respuesta" : "respuestas"}</b>, contando las de tus simulacros.</p>` : ""}
     <p class="muted small">El índice mide lo que ensayaste aquí: preguntas con 75 o más (30), historias completas (20), último simulacro (50). No predice la decisión de la empresa.</p>
     ${P.row.fecha ? `<button class="linklike" id="pFecha">Cambiar la fecha de la entrevista</button>` : `<div class="notice" data-kind="info"><b>¿Ya sabes cuándo es tu entrevista?</b> Con la fecha, el plan reparte lo pendiente entre los días que faltan.<label for="pFechaIn">Fecha de la entrevista</label><input id="pFechaIn" type="date"><div id="pFechaErr"></div><button class="primary wide" id="pFechaOk">Guardar la fecha</button></div>`}
     ${tableroHTML()}
@@ -348,7 +353,7 @@ function practice(q, opts = {}) {
     if (texto.length < 8) { $("#pErr").innerHTML = E()._err(friendly.muy_corta); return; }
     const b = $("#pGo"); b.disabled = true; b.textContent = "Revisando…";
     try {
-      const r = await Sala.fnFetch("entrevista", { modo: "vender", pregunta_id: q.id, pregunta: q.en, texto, historia: opts.historia ?? null, level: Sala.level() });
+      const r = await Sala.fnFetch("entrevista", { modo: "vender", pregunta_id: q.id, pregunta: q.en, texto, historia: opts.historia ?? null, voz: !!pron?.text, level: Sala.level() });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw j;
       if (g !== run) return;
@@ -390,7 +395,7 @@ function stories() {
   scr("Tus 5 historias", "", hub, BACK);
   const hs = historias();
   paint(`<p class="muted">Salen de tu hoja de vida. Corrige lo que no sea exacto y completa lo que falte: solo tú conoces esos datos.</p>
-    <div class="list">${hs.map((h, i) => `<button class="li lesson" data-h="${i}"><span>${esc(h.titulo)}</span><span class="meta">${completa(h) ? "Completa" : "Falta información"}${deHistoria(i).length ? ` · puntaje ${avanceTxt(deHistoria(i))}` : " · sin practicar"}</span></button>`).join("")}</div>`);
+    <div class="list">${hs.map((h, i) => `<button class="li lesson" data-h="${i}"><span>${esc(h.titulo)}</span><span class="meta">${completa(h) ? "Completa" : "Falta información"}${deHistoria(i).length ? ` · puntaje ${avanceTxt(deHistoria(i))}${enVoz(deHistoria(i)) ? ` · ${enVoz(deHistoria(i))} en voz alta` : ""}` : " · sin practicar"}</span></button>`).join("")}</div>`);
   for (const b of document.querySelectorAll("[data-h]")) b.onclick = () => story(Number(b.dataset.h));
 }
 function story(i) {
