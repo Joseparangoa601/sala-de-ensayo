@@ -470,6 +470,17 @@ const ring = [];                // cuadros previos al inicio de voz
 let stt = null;                 // sesión de reconocimiento activa
 let bargeFrames = 0;
 
+// WAV de 16 kHz, 16 bits, mono, a partir de los cuadros del micrófono
+function wavDe(cuadros) {
+  const n = cuadros.reduce((a, f) => a + f.length, 0), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const txt = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  txt(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); txt(8, "WAVE"); txt(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); txt(36, "data"); v.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const f of cuadros) for (let i = 0; i < f.length; i++, o += 2) { const s = Math.max(-1, Math.min(1, f[i])); v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([buf], { type: "audio/wav" });
+}
 function f32ToI16(f) {
   const out = new Int16Array(f.length);
   for (let i = 0; i < f.length; i++) { const s = Math.max(-1, Math.min(1, f[i])); out[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
@@ -542,7 +553,7 @@ function reiniciarAudio() {
 function onFrame(probs, frame) {
   if (!frame) return;
   ring.push(frame); if (ring.length > 4) ring.shift();
-  if (stt && !stt.closed) { stt.push.write(f32ToI16(frame)); stt.frames++; }
+  if (stt && !stt.closed) { stt.push.write(f32ToI16(frame)); stt.frames++; if (unaVez) unaVez.audio?.push(frame); }
   // Interrupción: solo si la voz es sostenida (evita que el eco del parlante corte al personaje)
   if (S.state === "speaking" && stt && S.bargeIn && !player.playing?.coach) {
     bargeFrames = probs.isSpeech > 0.85 ? bargeFrames + 1 : Math.max(0, bargeFrames - 1);
@@ -580,21 +591,23 @@ function oidoDudoso(text, conf) {
 // Una sola frase fuera de la conversación (Repaso). Usa el mismo micrófono y reconocimiento de la conversación.
 let unaVez = null;
 // pron: además evalúa la pronunciación por sonido (sin frase de referencia: se evalúa lo que la persona dijo)
-async function escucharUnaVez(parcial, { pron = false } = {}) {
+// grabar: guarda en memoria los mismos cuadros que van a Azure (16 kHz) para que la persona se oiga; nunca se sube
+async function escucharUnaVez(parcial, { pron = false, grabar = false } = {}) {
   if (!vadNode) await startMic(); else vadNode.start();
   let terminar;
   const promesa = new Promise((r) => { terminar = r; });
-  const u = unaVez = { parcial, pron: pron ? [] : null, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
+  const u = unaVez = { parcial, pron: pron ? [] : null, audio: grabar ? [] : null, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
   return {
     promesa,
     palabras: () => u.pron || [],
+    grabacion: () => (u.audio?.length ? wavDe(u.audio) : null),
     parar: async () => { const s = stt; const t = s ? await closeStt() : u.cerrando ? await u.cerrando : ""; if (s && u.pron) u.pron.push(...s.pron); u.fin(t); },
     cancelar: () => { if (unaVez === u && stt) { stt.discard = true; closeStt(); } u.fin(""); },
   };
 }
 
 function onSpeechStart() {
-  if (unaVez) { if (!stt) { openStt(!!unaVez.pron); for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; } } return; }
+  if (unaVez) { if (!stt) { openStt(!!unaVez.pron); for (const f of ring) { stt.push.write(f32ToI16(f)); stt.frames++; unaVez.audio?.push(f); } } return; }
   if (S.state === "paused" || S.state === "idle" || turno.cerrando) return;
   if (S.state === "thinking" && modoManual()) return;   // ya cerraste tu turno: lo que suene ahora no es parte de él
   if (player.playing?.coach) return;     // repetir en voz baja o un ruido no corta la corrección; se salta tocando el círculo

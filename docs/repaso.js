@@ -12,7 +12,12 @@ let queue = [], current = null, phase = "ask", heard = "", sim = null, rec = nul
 let repetida = null;   // tarjeta que ya se marcó «Otra vez» en esta vuelta
 let faltante = "", ayudada = false;   // lo que le faltó decir, y si ya vio ese final en esta vuelta
 let listenGen = 0, listenTimer = null, voiceMsg = "";   // listenGen invalida una escucha en curso al salir o avanzar
-let pron = [], sonidos = "";   // pronunciación por sonido del último intento hablado y su recuadro
+let pron = [], sonidos = "";
+/* Tu toma, para compararla con el modelo: solo en la memoria de esta tarjeta; se borra al pasar a otra o salir */
+let toma = null, tomaAudio = null;
+function pararToma() { try { tomaAudio?.pause(); } catch {} tomaAudio = null; }
+function soltarToma() { pararToma(); if (toma) { try { URL.revokeObjectURL(toma); } catch {} toma = null; } }
+const yoBtn = () => (toma ? `<button class="replay" id="rcYo" aria-label="Escuchar cómo lo dijiste">${IC.play}Cómo lo dijiste</button>` : "");   // pronunciación por sonido del último intento hablado y su recuadro
 let repite = null;   // si el intento volvió a decir el error que corrige la tarjeta: { falto, repitio }
 
 function fmtWhen(d) {
@@ -173,10 +178,10 @@ function render() {
     h += `<p class="rc-q listening">Te escucho…</p><div class="live">${esc(heard)}</div>
       <div class="rc-actions"><button class="ghost" id="rcStop">Listo</button></div>`;
   } else if (phase === "ok") {
-    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
+    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em>${sonidos && toma ? `<div class="char-acts">${yoBtn()}<button class="replay" data-oir="${esc(c.correcta)}" data-rate="0%">${IC.play}Cómo se dice</button><button class="replay" data-oir="${esc(c.correcta)}" data-rate="-30%">${IC.play}En lento</button></div>` : ""}</div>
       ${sonidos ? `${sonidos}<p class="rc-q" role="status">Bien dicha. Solo pule ese sonido.</p><div class="rc-actions"><button class="primary big" id="rcNext">Siguiente</button></div>` : `<p class="rc-q" role="status">Bien dicho. Sigue la próxima frase…</p>`}`;
   } else if (phase === "parcial") {
-    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em></div>
+    h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em>${toma ? `<div class="char-acts">${yoBtn()}</div>` : ""}</div>
       <div class="proof"><div class="row"><b>Te faltó</b><span class="ins">${esc(faltante)}</span></div></div>${sonidos}
       <p class="rc-q" role="status">Bien el comienzo. Ahora dila completa.</p>
       <div class="rc-actions">
@@ -186,7 +191,7 @@ function render() {
       <form id="rcType" class="row2"><input id="rcTypeBox" placeholder="…o escríbela" autocomplete="off" aria-label="Escribir la frase completa"><button class="ghost">OK</button></form>`;
   } else {
     const s = repite ? 1 : suggest(sim);   // repetir el error no es «Bien», aunque casi todas las palabras coincidan
-    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}</div>${sonidos}` : "";
+    h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}${toma ? `<div class="char-acts">${yoBtn()}</div>` : ""}</div>${sonidos}` : "";
     if (repite) h += `<div class="notice" data-kind="warn" role="status"><b>Se repitió el error.</b> ${[
       repite.repitio.length ? `Volviste a decir «${esc(repite.repitio.join(" "))}».` : "",
       repite.falto.length ? `Faltó «${esc(repite.falto.join(" "))}».` : "",
@@ -214,7 +219,8 @@ function wire() {
   on("rcShow", () => reveal(""));
   on("rcStop", () => { if (rec) rec.parar(); });
   on("rcListen", () => leerTarjeta(current));
-  for (const b of document.querySelectorAll("[data-oir]")) b.onclick = () => { Sala.stopAudio(); Sala.speakEN(b.dataset.oir, { rate: b.dataset.rate }).catch(() => {}); };
+  for (const b of document.querySelectorAll("[data-oir]")) b.onclick = () => { pararToma(); Sala.stopAudio(); Sala.speakEN(b.dataset.oir, { rate: b.dataset.rate }).catch(() => {}); };
+  on("rcYo", () => { if (!toma) return; Sala.stopAudio(); pararToma(); tomaAudio = new Audio(toma); tomaAudio.play().catch(() => {}); });
   on("rcArchive", () => { Datos.archive(current); next(); });
   const f = document.getElementById("rcType");
   if (f) f.onsubmit = (e) => { e.preventDefault(); const t = $("#rcTypeBox").value.trim(); if (t) reveal(t); };
@@ -244,7 +250,8 @@ async function listen() {
   phase = "listening"; heard = ""; render();
   let oido;
   try {
-    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; }, { pron: true });
+    soltarToma();
+    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; }, { pron: true, grabar: true });
   } catch {
     if (gen === listenGen) { phase = "ask"; heard = ""; voiceMsg = "No se pudo activar la voz. Revisa el permiso del micrófono o escribe tu respuesta."; render(); }
     return;
@@ -256,9 +263,12 @@ async function listen() {
   if (gen !== listenGen) return;
   clearTimeout(listenTimer); rec = null;
   pron = oido.palabras();
+  const g = (t || heard).trim() ? oido.grabacion?.() : null;
+  if (g) toma = URL.createObjectURL(g);
   reveal((t || heard).trim(), true);
 }
 function stopRec() {
+  soltarToma();
   listenGen++;   // lo que siga llegando de esta escucha ya no cuenta
   clearTimeout(listenTimer);
   if (!rec) return;
