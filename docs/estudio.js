@@ -1776,12 +1776,12 @@ function sceneHome() {
    ===================================================================== */
 /* ---------- Cómo se usa: tutoriales en video (bucket privado «tutoriales»; enlace firmado de 1 hora) ---------- */
 const TUTORIALES = [
-  { id: "t1", n: 1, t: "Primeros pasos", s: "Tu nivel, tus objetivos y el aviso diario", dura: "27 s" },
-  { id: "t2", n: 2, t: "Conversar con un personaje", s: "Responder en voz alta y ver la corrección", dura: "33 s" },
-  { id: "t3", n: 3, t: "Preparar una entrevista", s: "Con la oferta y tu hoja de vida", pronto: true },
-  { id: "t4", n: 4, t: "Aprender con un video", s: "Elegir la parte y estudiarla por pasos", pronto: true },
-  { id: "t5", n: 5, t: "Frase a frase y pronunciación", s: "Dictado y puntaje por palabra", pronto: true },
-  { id: "t6", n: 6, t: "Repaso y progreso", s: "Tus errores vuelven antes de olvidarlos", dura: "33 s" },
+  { id: "t1", n: 1, t: "Primeros pasos", s: "Tu nivel, tus objetivos, el aviso y 10 minutos al día", dura: "34 s" },
+  { id: "t2", n: 2, t: "Conversar con un personaje", s: "Responder en voz alta y ver la corrección", dura: "36 s" },
+  { id: "t3", n: 3, t: "Preparar una entrevista", s: "Con la oferta, tu hoja de vida y el simulacro", dura: "45 s" },
+  { id: "t4", n: 4, t: "Aprender con un video", s: "Elegir la parte, estudiarla por pasos y elegir frases", dura: "44 s" },
+  { id: "t5", n: 5, t: "Frase a frase y pronunciación", s: "Dictado, puntaje por palabra y comparar tu voz", dura: "37 s" },
+  { id: "t6", n: 6, t: "Repaso y progreso", s: "Tus errores vuelven antes de olvidarlos", dura: "43 s" },
 ];
 async function tutorialsScreen() {
   screen("Cómo se usa", "Videos cortos, paso a paso", home);
