@@ -1123,7 +1123,7 @@ function briefHTML(scene) {
 // Conversación de prueba sin cuenta
 const PRUEBA_URL = new URLSearchParams(location.search).has("prueba");
 const PRUEBA_TURNOS = 5, PRUEBA_ESCENA = "recruiter", PRUEBA_NIVEL = "B1";
-const PRUEBA_AGOTADA = "Ya usaste la prueba gratis de hoy. Reserva tu cupo para seguir practicando.";
+const PRUEBA_AGOTADA = "Ya usaste la prueba gratis de hoy. Compra tu acceso para seguir practicando.";
 const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófono para escucharte.";
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
@@ -1195,8 +1195,11 @@ function marcarPase(hay) {
   $("#masTitulo").textContent = hay ? "Otras conversaciones" : "Practica también";
   if (!hay) $("#paseHoy").hidden = true;
 }
-// Enlace de pago de Hotmart para comprar otro pase. Vacío hasta que José lo configure: entonces se ofrece escribir al correo.
-const COMPRA_URL = "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
+// Enlace de pago de Hotmart. Black Friday (USD 15) hasta el 27-nov a las 23:59 de Colombia; desde el 28, el precio regular (USD 27).
+const BF_FIN = Date.parse("2026-11-28T00:00:00-05:00");
+const enBF = () => Date.now() < BF_FIN;
+const COMPRA_URL = enBF() ? "https://pay.hotmart.com/Q108477434E?off=tero3dlt" : "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
+const COMPRA_TXT = enBF() ? "Black Friday: USD 15 por 30 días (regular USD 27)" : "Empieza hoy · USD 27 por 30 días";
 // El pase se gasta por respuesta (80 s fijos cada una, en la base); se muestra en conversaciones de 15 respuestas
 const SEG_RESPUESTA = 80, RESP_CONVERSACION = 15, SEG_CONVERSACION = SEG_RESPUESTA * RESP_CONVERSACION;
 const conversaciones = (seg) => Math.floor(seg / SEG_CONVERSACION);
@@ -1801,7 +1804,7 @@ async function iniciarPrueba() {
       history.replaceState(null, "", location.pathname);
       S.prueba = false; document.body.classList.remove("prueba");
       show("login");
-      $("#loginErr").textContent = j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o reserva tu cupo." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+      $("#loginErr").textContent = j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o compra tu acceso." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
       return;
     }
     try { sessionStorage.setItem("sala:prueba", tok); } catch {}
@@ -1840,7 +1843,7 @@ function pruebaCierreHTML() {
   return `<div class="prueba-cierre">
     <h2>Esto fue una sola escena</h2>
     <p class="muted">Con tu acceso ensayas todas las etapas de la entrevista, preparas tus respuestas con lo que de verdad hiciste y tus errores vuelven en el repaso hasta que te salgan solos.</p>
-    <a class="primary wide" id="rcReservar" href="https://pay.hotmart.com/Q108477434E?off=i760w6y0">Empieza hoy · USD 15 por 30 días</a>
+    <a class="primary wide" id="rcReservar" href="${COMPRA_URL}">${COMPRA_TXT}</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
   </div>`;
