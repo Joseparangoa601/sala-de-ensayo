@@ -38,7 +38,7 @@ function screen(title, sub, back, label) {
 function body(html) { $("#studyBody").innerHTML = html; }
 function home() { leave(); Sala.backHome(); }
 function on(id, fn) { const el = document.getElementById(id); if (el) el.onclick = fn; return el; }
-function err(msg) { return `<div class="notice" data-kind="warn">${esc(msg)}</div>`; }
+function err(msg) { window.Fallos?.aviso(msg); return `<div class="notice" data-kind="warn">${esc(msg)}</div>`; }
 // Inglés con la voz de Azure: prepara la voz antes de hablar y reactiva el audio dentro del toque (iOS lo suspende al salir de la app)
 function sayEN(text, opts) { const g = screenGen; return Sala.ensureVoice().catch(() => {}).then(() => { if (g === screenGen) return Sala.speakEN(text, opts); }).catch(() => {}); }
 // Evita que la pantalla se apague mientras se responde en voz alta; devuelve cómo soltarla

@@ -87,6 +87,7 @@ function notice(msg, kind = "warn") {
   const n = $("#notice");
   n.textContent = msg || "";
   n.dataset.kind = kind;
+  if (msg && kind !== "info") window.Fallos?.aviso(msg);
   n.hidden = !msg;
 }
 // Cada personaje conserva su color: la inicial y el tono salen de su nombre
@@ -220,12 +221,20 @@ async function fnFetch(name, body, signal) {
     if (!token) throw { code: "no_session" };
     auth = "Bearer " + token;
   }
-  const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/${name}`, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: auth, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
+  let r;
+  try {
+    r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/${name}`, {
+      method: body ? "POST" : "GET",
+      headers: { Authorization: auth, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      signal,
+    });
+  } catch (e) {
+    if (e?.name !== "AbortError") window.Fallos?.registrar("funcion", name, navigator.onLine ? "red" : "sin_conexion", e?.message);
+    throw e;
+  }
+  // Un 5xx es un fallo nuestro o del proveedor; los 4xx (sin horas, muy rápido, sesión vencida) son respuestas normales
+  if (r.status >= 500) r.clone().json().then((j) => window.Fallos?.registrar("funcion", name, r.status, j?.error || j?.message)).catch(() => window.Fallos?.registrar("funcion", name, r.status));
   return r;
 }
 
@@ -890,6 +899,7 @@ async function characterTurn(gen) {
     }[e.code] || "No hubo respuesta. Revisa tu conexión y repite tu frase.";
     notice(msg);
     logDebug("chat error " + JSON.stringify(e));
+    if (!["rate_limited", "sin_horas", "prueba_agotada"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
     setState("listening", "");
   }
 }
@@ -1757,6 +1767,7 @@ async function boot() {
   if (/type=(invite|recovery)/.test(enlace)) store.set("forzarClave", "nueva");
   if (/error_code=/.test(enlace)) { history.replaceState(null, "", location.pathname); setTimeout(() => { const e = $("#loginErr"); if (e) e.textContent = "Ese enlace ya no sirve. Escribe tu correo y toca «Olvidé mi contraseña» para recibir otro."; }, 300); }
   sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+  window.Fallos?.conectar(sb);
   const { data } = await sb.auth.getSession();
   S.session = data.session;
   // ?prueba: conversación de prueba sin cuenta. Quien ya tiene cuenta entra normal.

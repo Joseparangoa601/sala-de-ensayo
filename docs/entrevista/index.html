@@ -370,8 +370,16 @@
   const PAGO = enBF ? "https://pay.hotmart.com/Q108477434E?off=tero3dlt" : "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
   if (!enBF) document.querySelectorAll("[data-reg]").forEach((el) => { el.innerHTML = el.dataset.reg; });
   else { const d = Math.ceil((BF_FIN - Date.now()) / 864e5); document.querySelectorAll(".bf-queda").forEach((el) => { el.textContent = d <= 1 ? "último día" : `quedan ${d} días`; }); }
-  // Llega desde el final de la prueba sin cuenta (#reservar): muestra el precio
-  if (location.hash === "#reservar") document.getElementById("precio")?.scrollIntoView();
+  // Siempre abre arriba: el navegador no recuerda dónde quedó ni respeta un #dentro viejo en la dirección.
+  // Solo #reservar y #precio (enlaces de la app y de anuncios) llevan directo al precio.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  if (location.hash === "#reservar" || location.hash === "#precio") document.getElementById("precio")?.scrollIntoView();
+  else { if (location.hash) history.replaceState(null, "", location.pathname + location.search); scrollTo(0, 0); }
+  // Los enlaces internos bajan sin dejar el # en la dirección (así al volver o compartir abre arriba)
+  document.querySelectorAll('a[href^="#"]').forEach((a) => a.addEventListener("click", (e) => {
+    const destino = document.getElementById(a.getAttribute("href").slice(1));
+    if (destino) { e.preventDefault(); destino.scrollIntoView({ behavior: "smooth" }); }
+  }));
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
     if (enProduccion) track("cta", { donde: `${b.dataset.cta}-${precio}` }).catch(() => {});   // qué precio vio quien tocó
     location.href = PAGO;
