@@ -1196,7 +1196,7 @@ function marcarPase(hay) {
   if (!hay) $("#paseHoy").hidden = true;
 }
 // Enlace de pago de Hotmart para comprar otro pase. Vacío hasta que José lo configure: entonces se ofrece escribir al correo.
-const COMPRA_URL = "";
+const COMPRA_URL = "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
 // El pase se gasta por respuesta (80 s fijos cada una, en la base); se muestra en conversaciones de 15 respuestas
 const SEG_RESPUESTA = 80, RESP_CONVERSACION = 15, SEG_CONVERSACION = SEG_RESPUESTA * RESP_CONVERSACION;
 const conversaciones = (seg) => Math.floor(seg / SEG_CONVERSACION);
@@ -1840,7 +1840,7 @@ function pruebaCierreHTML() {
   return `<div class="prueba-cierre">
     <h2>Esto fue una sola escena</h2>
     <p class="muted">Con tu acceso ensayas todas las etapas de la entrevista, preparas tus respuestas con lo que de verdad hiciste y tus errores vuelven en el repaso hasta que te salgan solos.</p>
-    <a class="primary wide" id="rcReservar" href="/entrevista/#reservar">Reservar mi cupo · hoy no se cobra nada</a>
+    <a class="primary wide" id="rcReservar" href="https://pay.hotmart.com/Q108477434E?off=i760w6y0">Empieza hoy · USD 15 por 30 días</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
   </div>`;
