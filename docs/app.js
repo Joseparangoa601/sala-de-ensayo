@@ -1208,7 +1208,15 @@ function marcarPase(hay) {
 // Enlace de pago de Hotmart. Black Friday (USD 15) hasta el 27-nov a las 23:59 de Colombia; desde el 28, el precio regular (USD 27).
 const BF_FIN = Date.parse("2026-11-28T00:00:00-05:00");
 const enBF = () => Date.now() < BF_FIN;
-const COMPRA_URL = enBF() ? "https://pay.hotmart.com/Q108477434E?off=tero3dlt" : "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
+// Lleva a Hotmart la campaña de la landing (src) y la visita (sck), igual que el botón de la landing
+const COMPRA_URL = (() => {
+  const base = enBF() ? "https://pay.hotmart.com/Q108477434E?off=tero3dlt" : "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
+  let u = {}; try { u = JSON.parse(sessionStorage.getItem("espera:utm") || "{}"); } catch {}
+  const src = String(u.utm_campaign || u.utm_source || (u.fbclid ? "meta" : u.gclid ? "google" : u.ttclid ? "tiktok" : "app")).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "app";
+  let sid = ""; try { sid = sessionStorage.getItem("espera:sid") || ""; } catch {}
+  return `${base}&src=${encodeURIComponent(src)}${sid ? `&sck=${encodeURIComponent(sid.slice(0, 40))}` : ""}`;
+})();
+const INTERNO = (() => { try { return localStorage.getItem("sala:interno") === "1"; } catch { return false; } })();
 const COMPRA_TXT = enBF() ? "Black Friday: USD 15 por 30 días (regular USD 27)" : "Empieza hoy · USD 27 por 30 días";
 // El pase se gasta por respuesta (80 s fijos cada una, en la base); se muestra en conversaciones de 15 respuestas
 const SEG_RESPUESTA = 80, RESP_CONVERSACION = 15, SEG_CONVERSACION = SEG_RESPUESTA * RESP_CONVERSACION;
@@ -1806,7 +1814,7 @@ async function iniciarPrueba() {
     let j = {}, st = 0;
     try {
       const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ evento: "prueba", donde: "inicio", sid: sidEmbudo(), utm: Object.fromEntries(new URLSearchParams(location.search)) }) });
+        body: JSON.stringify({ evento: "prueba", donde: "inicio", sid: sidEmbudo(), interno: INTERNO, utm: Object.fromEntries(new URLSearchParams(location.search)) }) });
       st = r.status; j = await r.json().catch(() => ({}));
     } catch {}
     tok = j.token || null;
@@ -1870,7 +1878,7 @@ function sidEmbudo() {
 }
 // Embudo de la landing (función espera): solo cuenta el sitio publicado
 function trackPrueba(donde) {
-  if (location.hostname !== "sala.lead10x.com.co") return;
+  if (location.hostname !== "sala.lead10x.com.co" || INTERNO) return;
   fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
     body: JSON.stringify({ evento: "prueba", donde, sid: sidEmbudo(), utm: Object.fromEntries(new URLSearchParams(location.search)) }) }).catch(() => {});
 }

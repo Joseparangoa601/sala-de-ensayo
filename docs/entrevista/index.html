@@ -355,7 +355,13 @@
   })();
   // Embudo: visita → toque del botón con precio → correo con autorización. Sin cookies: un id que vive solo en esta pestaña (recargar no cuenta como otra visita).
   const ENDPOINT = "https://srdpcfpqdapdaydhdbjs.supabase.co/functions/v1/espera";
-  const utm = Object.fromEntries(new URLSearchParams(location.search));
+  const params = new URLSearchParams(location.search);
+  // ?interno=1 marca este navegador como de José: sus visitas, toques y pruebas no suman al embudo. ?interno=0 lo desmarca.
+  try { if (params.get("interno") === "1") localStorage.setItem("sala:interno", "1"); if (params.get("interno") === "0") localStorage.removeItem("sala:interno"); } catch {}
+  const interno = (() => { try { return localStorage.getItem("sala:interno") === "1"; } catch { return false; } })();
+  params.delete("interno");
+  const utm = Object.fromEntries(params);
+  try { if (utm.utm_source || utm.utm_campaign || utm.fbclid || utm.gclid || utm.ttclid) sessionStorage.setItem("espera:utm", JSON.stringify(utm)); } catch {}
   const newSid = () => (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
   const sid = (() => { try { let s = sessionStorage.getItem("espera:sid"); if (!s) { s = newSid(); sessionStorage.setItem("espera:sid", s); } return s; } catch { return newSid(); } })();
   function track(evento, extra = {}) {
@@ -363,10 +369,16 @@
       body: JSON.stringify({ evento, sid, utm, ...extra }) });
   }
   // Solo el sitio publicado cuenta en el embudo: una copia local no suma visitas ni toques
-  const enProduccion = location.hostname === "sala.lead10x.com.co";
+  const enProduccion = location.hostname === "sala.lead10x.com.co" && !interno;
   if (enProduccion) track("visita").catch(() => {});
   // Black Friday: USD 15 hasta el 27-nov a las 23:59 de Colombia; desde el 28, el precio regular de USD 27. Cambia sola por fecha.
   const BF_FIN = Date.parse("2026-11-28T00:00:00-05:00"), enBF = Date.now() < BF_FIN, precio = enBF ? 15 : 27;
+  // Hotmart devuelve en la compra la campaña (src) y la visita (sck): así se sabe qué anuncio trajo cada compra
+  function conOrigen(url, visita) {
+    let u = {}; try { u = JSON.parse(sessionStorage.getItem("espera:utm") || "{}"); } catch {}
+    const src = String(u.utm_campaign || u.utm_source || (u.fbclid ? "meta" : u.gclid ? "google" : u.ttclid ? "tiktok" : "directo")).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "directo";
+    return `${url}&src=${encodeURIComponent(src)}&sck=${encodeURIComponent(String(visita).slice(0, 40))}`;
+  }
   const PAGO = enBF ? "https://pay.hotmart.com/Q108477434E?off=tero3dlt" : "https://pay.hotmart.com/Q108477434E?off=i760w6y0";
   if (!enBF) document.querySelectorAll("[data-reg]").forEach((el) => { el.innerHTML = el.dataset.reg; });
   else { const d = Math.ceil((BF_FIN - Date.now()) / 864e5); document.querySelectorAll(".bf-queda").forEach((el) => { el.textContent = d <= 1 ? "último día" : `quedan ${d} días`; }); }
@@ -382,7 +394,7 @@
   }));
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
     if (enProduccion) track("cta", { donde: `${b.dataset.cta}-${precio}` }).catch(() => {});   // qué precio vio quien tocó
-    location.href = PAGO;
+    location.href = conOrigen(PAGO, sid);
   });
   // Botón fijo en móvil: aparece cuando el botón principal sale de la vista y se oculta cerca del botón del precio.
   const sticky = document.getElementById("sticky");
