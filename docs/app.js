@@ -1049,7 +1049,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
         <p class="muted small">${S.prueba ? "Con tu acceso, estas frases quedan en tu cuaderno de errores y vuelven en tu repaso hasta que te salgan solas." : "Estas frases ya están en tu cuaderno de errores."}</p>`
       : list.failed ? `<p class="muted small">No pude revisar todas tus frases en esta práctica.</p>`
       : `<div class="proof good"><span class="ok">✓ Sin errores que corregir en esta práctica.</span></div>`}
-      ${S.prueba ? pruebaCierreHTML() : `
+      ${S.prueba ? pruebaCierreHTML(ev) : `
       ${scored ? `<button class="primary wide" id="rcAgain">Ensayar otra vez con este reto</button>` : ""}
       ${due ? `<button class="${scored ? "ghost" : "primary"} wide" id="rcReview">Repasar ahora · ${due} ${due === 1 ? "pendiente" : "pendientes"}</button>` : ""}
       ${scored ? "" : `<button class="ghost wide" id="rcAgain">Ensayar otra vez esta escena</button>`}
@@ -1069,6 +1069,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
     const dn = $("#rcDone"); if (dn) dn.onclick = () => { off(); leave(); };
     const en = $("#rcEntrar"); if (en) en.onclick = salirDePrueba;
     const rs = $("#rcReservar"); if (rs) rs.onclick = () => trackPrueba("reservar");
+    if (S.prueba) informeForm(scene, ev, list);
     if (scene.medicion) $("#rcAgain")?.remove();   // la medición vale por el primer intento: no se repite en el momento
   }
   S.recapRender = render;
@@ -1858,8 +1859,60 @@ function terminarPrueba() {
   };
   listo();
 }
-function pruebaCierreHTML() {
-  return `<div class="prueba-cierre">
+// Informe por correo: la persona deja su correo a cambio de su informe completo y la guía de las 12 preguntas.
+// Lo que se ve en pantalla no cambia. La casilla va sin marcar (Ley 1581): sin ella no se envía nada.
+const AUTORIZACION = "Autorizo a José P. Arango, responsable de Sala de Ensayo (lead10x), a usar mi correo para enviarme este informe y comunicaciones comerciales sobre Sala de Ensayo, según la política de privacidad. Puedo darme de baja cuando quiera.";
+const INFORME_ACTIVO = false;   // se enciende cuando la clave de Brevo esté en los secretos de Supabase (si no, el correo no saldría)
+function informeHTML(ev) {
+  if (!INFORME_ACTIVO) return "";
+  const d = S.infDraft || {};
+  if (d.enviado) return `<div class="inf-form ok" role="status"><b>Listo: revisa tu correo.</b><span class="muted small">Te enviamos tu informe a ${esc(d.email)}. Si no llega en unos minutos, mira en spam o promociones.</span></div>`;
+  return `<form class="inf-form" id="infForm" novalidate>
+    <h2>¿A dónde te enviamos tu informe completo?</h2>
+    <p class="muted small">Todas tus frases corregidas, tu evaluación y la guía <b>«Las 12 preguntas que te hacen en casi cualquier entrevista en inglés»</b>. Gratis.</p>
+    <label for="infEmail">Tu correo</label>
+    <input id="infEmail" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="tu@correo.com" value="${esc(d.email || "")}">
+    <label class="inf-chk"><input type="checkbox" id="infOk" ${d.ok ? "checked" : ""}><span>${esc(AUTORIZACION).replace("política de privacidad", `<a href="/entrevista/privacidad.html" target="_blank" rel="noopener">política de privacidad</a>`)}</span></label>
+    <input type="text" name="web" id="infWeb" tabindex="-1" autocomplete="off" aria-hidden="true" class="inf-trampa">
+    <button class="primary wide" id="infGo" ${ev.loading ? "disabled" : ""}>${ev.loading ? "Preparando tu evaluación…" : "Enviarme mi informe"}</button>
+    <p class="muted small" id="infMsg" role="status">Sin spam. Te das de baja cuando quieras.</p>
+  </form>`;
+}
+function informeForm(scene, ev, list) {
+  const f = $("#infForm"); if (!f) return;
+  S.infDraft = S.infDraft || {};
+  $("#infEmail").oninput = (e) => { S.infDraft.email = e.target.value; };
+  $("#infOk").onchange = (e) => { S.infDraft.ok = e.target.checked; };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $("#infEmail").value.trim(), msg = $("#infMsg"), btn = $("#infGo");
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { msg.textContent = "Revisa tu correo: parece que le falta algo."; $("#infEmail").focus(); return; }
+    if (!$("#infOk").checked) { msg.textContent = "Para enviarte el informe necesitamos tu autorización: marca la casilla."; return; }
+    const v = ev.v;
+    const informe = {
+      escena: scene.title, puntaje: v ? v.puntaje : null,
+      criterios: v ? CRITERIOS.map(([k, t]) => ({ t, nota: v.criterios[k]?.nota, por_que: v.criterios[k]?.por_que_es })) : [],
+      lo_mejor: v?.lo_mejor_es || "", reto: v?.reto_es || "", mejor: v?.mejor ? { dijiste: v.mejor.dijiste, mejor_en: v.mejor.mejor_en } : null,
+      correcciones: list.map((c) => ({ dijiste: c.original, mejor: c.better, tip: c.tip || "" })),
+    };
+    let utm = {}; try { utm = JSON.parse(sessionStorage.getItem("espera:utm") || "{}"); } catch {}
+    btn.disabled = true; btn.textContent = "Enviando…";
+    try {
+      const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evento: "informe", email, consentimiento: true, autorizacion: AUTORIZACION, pase: S.pruebaToken, sid: sidEmbudo(), interno: INTERNO, utm, informe, web: $("#infWeb").value }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.status);
+      S.infDraft = { email, enviado: true };
+      f.outerHTML = informeHTML(ev);
+    } catch (err) {
+      window.Fallos?.registrar("funcion", "espera-informe", String(err?.message || err));
+      btn.disabled = false; btn.textContent = "Enviarme mi informe";
+      msg.textContent = String(err?.message) === "rate_limited" ? "Ya pediste varios informes. Espera un momento e intenta de nuevo." : "No se pudo enviar. Revisa tu conexión e intenta de nuevo.";
+    }
+  };
+}
+function pruebaCierreHTML(ev) {
+  return `${informeHTML(ev)}<div class="prueba-cierre">
     <h2>Esto fue una sola escena</h2>
     <p class="muted">Con tu acceso ensayas todas las etapas de la entrevista, preparas tus respuestas con lo que de verdad hiciste y tus errores vuelven en el repaso hasta que te salgan solos.</p>
     <a class="primary wide" id="rcReservar" href="${COMPRA_URL}">${COMPRA_TXT}</a>

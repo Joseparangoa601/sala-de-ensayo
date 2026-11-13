@@ -86,6 +86,11 @@
   .sticky.show{transform:none}
   .sticky .cta{max-width:704px;margin:0 auto;padding:12px}
   @media (min-width:900px){.sticky{display:none}}
+  .cookies{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto;z-index:8;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:14px 16px;font-size:.9rem}
+  .cookies p{margin:0 0 10px} .cookies div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .cookies button{font:inherit;font-weight:700;border-radius:10px;padding:10px 14px;cursor:pointer;min-height:44px}
+  .cookies .okbtn{background:var(--accent);color:var(--accent-ink,#fff);border:0} .cookies .ghostbtn{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .linkbtn{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
   @media (max-width:899px){body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}}
   /* Hero oscuro con video de fondo (misma técnica que lead10x.com.co): primero el poster, el video después del load */
   .hero{position:relative;isolation:isolate;background:#0E1216;color:#EFF3F3;overflow:hidden}
@@ -327,10 +332,14 @@
 </main>
 <div class="wrap">
   <footer>
-    <p>Sala de Ensayo, un producto de <a href="https://lead10x.com.co/" target="_blank" rel="noopener">lead10x</a> · <a href="privacidad.html">Política de privacidad</a> · Sin cookies ni rastreadores de terceros.</p>
+    <p>Sala de Ensayo, un producto de <a href="https://lead10x.com.co/" target="_blank" rel="noopener">lead10x</a> · <a href="privacidad.html">Política de privacidad</a><span id="cookiesPie" hidden> · <button type="button" class="linkbtn" id="cookiesCambiar">Cookies</button></span></p>
   </footer>
 </div>
 
+<div class="cookies" id="cookies" role="dialog" aria-label="Cookies" hidden>
+  <p>¿Aceptas cookies de publicidad? Con ellas Meta nos ayuda a mostrarte Sala de Ensayo en Instagram y Facebook y a medir los anuncios. <a href="privacidad.html">Más información</a></p>
+  <div><button type="button" class="ghostbtn" id="cookiesNo">Solo las necesarias</button><button type="button" class="okbtn" id="cookiesSi">Aceptar</button></div>
+</div>
 <div class="sticky" id="sticky" aria-hidden="true"><button class="cta" data-cta="sticky" tabindex="-1" data-reg="Empieza hoy · USD 27">Black Friday · USD 15 <s>USD 27</s></button></div>
 
 
@@ -392,7 +401,29 @@
     const destino = document.getElementById(a.getAttribute("href").slice(1));
     if (destino) { e.preventDefault(); destino.scrollIntoView({ behavior: "smooth" }); }
   }));
+  // Píxel de Meta: solo con permiso (aviso de cookies). Sin identificador no aparece ni el aviso.
+  const META_PIXEL = "";   // José lo crea en el Administrador de eventos de Meta
+  const fbqEvento = (nombre, datos) => { try { window.fbq?.("track", nombre, datos); } catch {} };
+  function cargarPixel() {
+    if (window.fbq || !META_PIXEL) return;
+    const n = window.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+    n.push = n; n.loaded = true; n.version = "2.0"; n.queue = [];
+    const t = document.createElement("script"); t.async = true; t.src = "https://connect.facebook.net/en_US/fbevents.js"; document.head.appendChild(t);
+    window.fbq("init", META_PIXEL); window.fbq("track", "PageView");
+  }
+  if (META_PIXEL && !interno) {
+    const caja = document.getElementById("cookies");
+    let decision = null; try { decision = localStorage.getItem("sala:cookies"); } catch {}
+    const decidir = (v) => { try { localStorage.setItem("sala:cookies", v); } catch {} caja.hidden = true; if (v === "si") cargarPixel(); else if (window.fbq) location.reload(); };
+    document.getElementById("cookiesSi").onclick = () => decidir("si");
+    document.getElementById("cookiesNo").onclick = () => decidir("no");
+    document.getElementById("cookiesPie").hidden = false;
+    document.getElementById("cookiesCambiar").onclick = () => { caja.hidden = false; };
+    if (decision === "si") cargarPixel(); else if (!decision) caja.hidden = false;
+  }
+  document.querySelector("a.probar")?.addEventListener("click", () => fbqEvento("Lead", { content_name: "prueba" }));
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
+    fbqEvento("InitiateCheckout", { value: precio, currency: "USD" });
     if (enProduccion) track("cta", { donde: `${b.dataset.cta}-${precio}` }).catch(() => {});   // qué precio vio quien tocó
     location.href = conOrigen(PAGO, sid);
   });
