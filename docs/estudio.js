@@ -1500,7 +1500,7 @@ function step6() {
   const pintarNivel = () => {
     for (const b of document.querySelectorAll("[data-nv]")) { const on_ = b.dataset.nv === elegido; b.classList.toggle("sug", on_); b.setAttribute("aria-pressed", String(on_)); }
     const nota = $("#nvNota");
-    if (nota) nota.textContent = `${test ? `Por defecto es el nivel de tu test (${test}).` : "Aún no tienes test, así que por defecto es B2."} Cambia cómo te habla el personaje; las expresiones de la lección son las mismas.`;
+    if (nota) nota.textContent = `${test ? `Por defecto es el nivel de tu test (${test}).` : `Aún no tienes test, así que por defecto es tu nivel (${nivelHabla(Sala.level()) || "B1"}).`} Cambia cómo te habla el personaje; las expresiones de la lección son las mismas.`;
   };
   for (const b of document.querySelectorAll("[data-nv]")) b.onclick = () => { elegido = b.dataset.nv; tocado = true; saveProgress({ nivel_habla: elegido }); pintarNivel(); };
   pintarNivel();
