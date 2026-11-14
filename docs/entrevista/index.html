@@ -402,7 +402,7 @@
     if (destino) { e.preventDefault(); destino.scrollIntoView({ behavior: "smooth" }); }
   }));
   // Píxel de Meta: solo con permiso (aviso de cookies). Sin identificador no aparece ni el aviso.
-  const META_PIXEL = "";   // José lo crea en el Administrador de eventos de Meta
+  const META_PIXEL = "1344665327666367";   // dataset «Sala de Ensayo» (Administrador de eventos de Meta, 13-nov-2026). No es secreto.
   const fbqEvento = (nombre, datos) => { try { window.fbq?.("track", nombre, datos); } catch {} };
   function cargarPixel() {
     if (window.fbq || !META_PIXEL) return;

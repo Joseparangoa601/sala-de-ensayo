@@ -1902,12 +1902,13 @@ function informeForm(scene, ev, list) {
         body: JSON.stringify({ evento: "informe", email, consentimiento: true, autorizacion: AUTORIZACION, pase: S.pruebaToken, sid: sidEmbudo(), interno: INTERNO, utm, informe, web: $("#infWeb").value }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || r.status);
+      if (j.enviado === false) throw new Error("no_enviado");   // quedó guardado; al tocar otra vez se reintenta
       S.infDraft = { email, enviado: true };
       f.outerHTML = informeHTML(ev);
     } catch (err) {
       window.Fallos?.registrar("funcion", "espera-informe", String(err?.message || err));
       btn.disabled = false; btn.textContent = "Enviarme mi informe";
-      msg.textContent = String(err?.message) === "rate_limited" ? "Ya pediste varios informes. Espera un momento e intenta de nuevo." : "No se pudo enviar. Revisa tu conexión e intenta de nuevo.";
+      msg.textContent = String(err?.message) === "rate_limited" ? "Ya pediste varios informes. Espera un momento e intenta de nuevo." : String(err?.message) === "no_enviado" ? "No pudimos enviarlo en este momento. Toca otra vez en un minuto." : "No se pudo enviar. Revisa tu conexión e intenta de nuevo.";
     }
   };
 }
