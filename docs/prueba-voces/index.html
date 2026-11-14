@@ -130,12 +130,21 @@ document.getElementById("enviar").addEventListener("click", async () => {
     const r = await fetch(`${C.SUPABASE_URL}/rest/v1/votos_voces`, { method: "POST",
       headers: { apikey: C.SUPABASE_ANON_KEY, Authorization: `Bearer ${C.SUPABASE_ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
       body: JSON.stringify({ datos }) });
-    if (!r.ok) throw new Error(r.status);
+    if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(/encuesta_cerrada/.test(t) ? "cerrada" : /limite_votos/.test(t) ? "limite" : r.status); }
     est.innerHTML = '<span class="ok">¡Gracias! Tus respuestas quedaron guardadas.</span>';
     document.getElementById("enviar").disabled = true;
-  } catch (e) { est.textContent = "No se pudo enviar. Intenta de nuevo en un momento."; }
+  } catch (e) {
+    est.textContent = e.message === "cerrada" ? "La encuesta ya cerró. ¡Gracias por tu interés!"
+      : e.message === "limite" ? "Ya recibimos los votos de esta conexión. ¡Gracias!"
+      : "No se pudo enviar. Intenta de nuevo en un momento.";
+  }
 });
 armar();
+// Cerrada desde el 1 de diciembre (hora de Colombia): se avisa antes de que la persona responda todo
+if (Date.now() >= Date.parse("2026-12-01T00:00:00-05:00")) {
+  const b = document.getElementById("enviar"); b.disabled = true;
+  document.getElementById("estado").textContent = "La encuesta ya cerró. ¡Gracias por tu interés!";
+}
 </script>
 </body>
 </html>

@@ -9,7 +9,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (s) => document.querySelector(s);
 const SIM = "Simulacro de entrevista";
 const BACK = "‹ Tu carpeta";
-const P = { row: null, intentos: [], sims: [], hist: null };
+const P = { row: null, intentos: [], sims: [], hist: null, archivo: [] };
 let run = 0;   // cambia con cada pantalla: lo que llegue tarde no pinta sobre otra
 
 const scr = (title, sub, back, label) => { run++; E()._screen(title, sub, back, label); return run; };
@@ -85,18 +85,40 @@ const friendly = {
   sin_cargo: "Escribe el cargo para el que te preparas.",
   muy_corta: "Esa respuesta es muy corta para evaluarla.",
   rate_limited: "Vas muy rápido. Espera un minuto e inténtalo de nuevo.",
+  creando: "Todavía se está armando una carpeta. Espera a que termine y vuelve a intentarlo.",
+  carpeta_cambio: "Tu carpeta cambió desde otro equipo. La volví a cargar: revisa y vuelve a intentarlo.",
+  db: "No pude crear la carpeta nueva y no cambié nada. Inténtalo de nuevo.",
 };
 const failMsg = (j) => Sala.limiteMsg(j) || friendly[j?.error] || "No pude completar eso. Revisa tu conexión e inténtalo de nuevo.";
 
 async function load() {
-  const [a, b, c] = await Promise.all([
+  const [a, c, d] = await Promise.all([
     sb().from("expediente").select("*").maybeSingle(),
-    sb().from("expediente_intentos").select("*").order("creado", { ascending: true }).limit(800),
-    sb().from("sesiones").select("evaluacion,inicio").eq("escena", SIM).not("evaluacion", "is", null).order("inicio", { ascending: true }).limit(60),
+    sb().from("sesiones").select("evaluacion,inicio").eq("escena", SIM).not("evaluacion", "is", null).order("inicio", { ascending: false }).limit(200),
+    sb().from("expediente_archivo").select("id,cargo,empresa,fecha,entrada,creado,iniciado,archivado").order("archivado", { ascending: false }).limit(200),
   ]);
   if (a.error) throw a.error;
-  // Solo los intentos de este expediente: los de una oferta anterior tenían otras preguntas (se conservan, no se mezclan)
-  P.row = a.data; P.intentos = (b.data ?? []).filter((x) => !P.row?.iniciado || x.expediente_iniciado === P.row.iniciado); P.sims = (c.data ?? []).filter((x) => !P.row?.iniciado || x.inicio >= P.row.iniciado);   // simulacros de esta carpeta, no de otra oferta
+  try { P.pase = (await sb().from("pases").select("activo,vence,segundos_total,segundos_usados").maybeSingle()).data || null; } catch { P.pase = null; }
+  P.row = a.data;
+  P.archivo = d.error ? [] : (d.data ?? []);
+  // Solo los intentos de esta carpeta: los de otra oferta tenían otras preguntas (se conservan, no se mezclan).
+  // Se piden filtrados: con varias carpetas, el tope de filas ya no alcanza para todos.
+  let q = sb().from("expediente_intentos").select("*").order("creado", { ascending: true }).limit(800);
+  if (P.row?.iniciado) q = q.eq("expediente_iniciado", P.row.iniciado);
+  const [b, todos] = await Promise.all([q, sb().from("expediente_intentos").select("creado,expediente_iniciado").eq("tipo", "simulacro").order("creado", { ascending: false }).limit(300)]);
+  P.intentos = b.data ?? [];
+  // Inglés de los simulacros de ESTA carpeta: cada simulacro deja un intento «simulacro» al pedir su informe (hasta
+  // 7 días después si quedó pendiente). Cada sesión se asigna al informe que la sigue más de cerca, sea de la carpeta
+  // que sea, y cuenta aquí solo si ese informe es de esta carpeta.
+  const infs = (todos.data ?? []).map((x) => ({ t: Date.parse(x.creado), c: x.expediente_iniciado ? Date.parse(x.expediente_iniciado) : null }));
+  const mia = P.row?.iniciado ? Date.parse(P.row.iniciado) : null;
+  P.sims = (c.data ?? []).slice().reverse().filter((x) => {
+    const t0 = Date.parse(x.inicio);
+    if (!mia || t0 < mia) return false;
+    const sig = infs.filter((i) => i.t >= t0 && i.t - t0 < 8 * 864e5).sort((p, q2) => p.t - q2.t)[0];
+    return !!sig && sig.c === mia;
+  });
+  if (d.error) P.archivoError = true; else P.archivoError = false;
 }
 
 async function open() {
@@ -113,16 +135,26 @@ async function open() {
 /* ---------------- entrada ---------------- */
 function start() {
   scr("Modo entrevista", "Prepárate en inglés", null);
+  if (paseEstado().vencido) { paint(`<h1>Tu entrevista en inglés</h1><div class="notice" data-kind="warn" id="pVencido">Tu pase ya no está vigente: para crear una carpeta necesitas un pase activo. En Tú → Tu pase ves cómo seguir.</div>`); paintAnteriores(); return; }
   paint(`<h1>Tu entrevista en inglés</h1>
     <p class="muted">Primero armamos tu carpeta: tus historias reales, las preguntas que te harían y un plan. Todo lo que practiques se queda aquí.</p>
     <button class="tile" id="pOferta"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Tengo una oferta</b><small>Pega el aviso del cargo y te preparas para ese puesto</small></span></button>
     <button class="tile" id="pPreparo"><span class="ic" aria-hidden="true"><svg><use href="#i-flag"/></svg></span><span><b>Me preparo para cuando llegue</b><small>Elige el tipo de cargo y deja listas tus historias</small></span></button>`);
+  paintAnteriores();
   on("pOferta", () => form("oferta"));
   on("pPreparo", () => form("preparo"));
 }
-function form(entrada) {
+// Debajo de la entrada: las carpetas anteriores, para volver a una sin crear otra
+function paintAnteriores() {
+  if (!P.archivo.length) return;
+  const el = document.createElement("div");
+  el.innerHTML = `<button class="ghost wide" id="pAnt">Ver tus carpetas anteriores (${P.archivo.length})</button>`;
+  (document.getElementById("pPreparo") || document.getElementById("pVencido"))?.after(el);
+  on("pAnt", anteriores);
+}
+function form(entrada, nueva = false, borrador = null) {
   const oferta = entrada === "oferta";
-  scr(oferta ? "Tengo una oferta" : "Me preparo", "Tu carpeta", start, "‹ Volver");
+  scr(oferta ? "Tengo una oferta" : "Me preparo", nueva ? "Carpeta nueva" : "Tu carpeta", nueva ? otraOferta : start, "‹ Volver");
   paint(`<label for="fCargo">${oferta ? "Cargo (si no está claro en el aviso)" : "¿Para qué cargo te preparas?"}</label>
     <input id="fCargo" maxlength="120" placeholder="Ej.: Analista de datos">
     ${oferta ? `<label for="fEmpresa">Empresa (opcional)</label><input id="fEmpresa" maxlength="120">
@@ -135,7 +167,9 @@ function form(entrada) {
     <textarea id="fCv" rows="9" maxlength="12000" placeholder="…o pega aquí el texto de tu hoja de vida"></textarea>
     <p class="muted small">Tu hoja de vida se guarda en tu cuenta y se procesa con inteligencia artificial para preparar tus respuestas. Puedes borrarla cuando quieras. La app solo usa datos que estén en lo que pegas.</p>
     <div id="fErr"></div>
-    <button class="primary wide" id="fGo">Crear mi carpeta</button>`);
+    <button class="primary wide" id="fGo">${nueva ? "Crear la carpeta nueva" : "Crear mi carpeta"}</button>`);
+  if (borrador) { for (const [id, k] of [["fCv", "cv"], ["fOferta", "oferta"], ["fCargo", "cargo"], ["fEmpresa", "empresa"], ["fFecha", "fecha"]]) { const el = document.getElementById(id); if (el && borrador[k]) el.value = borrador[k]; } }
+  else if (nueva && P.row?.cv) { $("#fCv").value = P.row.cv; $("#fArchivoMsg").className = "small muted"; $("#fArchivoMsg").textContent = "Trajimos la hoja de vida de tu carpeta actual. Cámbiala si la actualizaste."; }
   $("#fArchivo").onchange = async (e) => {
     const f = e.target.files?.[0], msg = $("#fArchivoMsg"); if (!f) return;
     msg.className = "small muted"; msg.textContent = `Leyendo «${f.name}»…`;
@@ -160,8 +194,10 @@ function form(entrada) {
       const r = await Sala.fnFetch("entrevista", { modo: "crear", entrada, cv: v("fCv"), oferta: v("fOferta"), cargo: v("fCargo"), empresa: v("fEmpresa"), fecha: v("fFecha") || null, level: Sala.level() });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw j;
+      // Borrador de lo que escribió: si la carpeta nueva falla, puede reintentar sin volver a pegar la oferta
+      Sala.store.set(BORRADOR, { entrada, nueva, cv: v("fCv"), oferta: v("fOferta"), cargo: v("fCargo"), empresa: v("fEmpresa"), fecha: v("fFecha"), iniciado: j.iniciado || null });
       waitCreate();
-    } catch (j) { $("#fErr").innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = "Crear mi carpeta"; }
+    } catch (j) { $("#fErr").innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = nueva ? "Crear la carpeta nueva" : "Crear mi carpeta"; }
   });
 }
 const PASOS_CREAR = [[0, "Leyendo tu hoja de vida"], [15, "Buscando tus historias reales"], [35, "Armando las preguntas que te harían"], [60, "Conectando tus historias con el cargo"], [90, "Últimos detalles"]];
@@ -183,23 +219,57 @@ async function waitCreate() {
     if (g !== run) return;
     pintar();
     let row = null;
-    try { ({ data: row } = await sb().from("expediente").select("estado").maybeSingle()); } catch {}
-    if (row?.estado === "listo") { return open(); }
+    try { ({ data: row } = await sb().from("expediente").select("estado,iniciado,cargo").maybeSingle()); } catch {}
+    if (row?.estado === "listo") return open();   // si la nueva falló, la carpeta trae la marca fallo_nueva y hub() lo dice
     if (row?.estado === "error") { return createFailed(); }
   }
   if (g === run) createFailed();
 }
-function createFailed() {
-  scr("Modo entrevista", "", null);
-  paint(E()._err("No se pudo crear la carpeta.") + `<button class="primary wide" id="pAgain">Empezar otra vez</button>`);
+async function createFailed() {
+  const g = scr("Modo entrevista", "", null);
+  let arch = [];
+  try { arch = (await sb().from("expediente_archivo").select("id,cargo").order("archivado", { ascending: false }).limit(1)).data ?? []; } catch {}
+  if (g !== run) return;
+  const ant = arch[0];
+  paint(E()._err("No se pudo crear la carpeta.") + (ant ? `<p class="muted">Tu carpeta de <b>${esc(ant.cargo || "antes")}</b> está guardada, sin perder nada.</p><div id="pVErr"></div><button class="primary wide" id="pVolverAnt">Volver a mi carpeta de ${esc(ant.cargo || "antes")}</button>` : "")
+    + (Sala.store.get(BORRADOR, null) && !ant ? `<button class="primary wide" id="pBorr">Intentar otra vez con lo que escribiste</button>` : "")
+    + `<button class="${ant || Sala.store.get(BORRADOR, null) ? "ghost" : "primary"} wide" id="pAgain">Empezar otra vez</button>`);
+  on("pBorr", async () => {
+    const b = Sala.store.get(BORRADOR, null); if (!b) return start();
+    let row = null;
+    try { ({ data: row } = await sb().from("expediente").select("estado,actualizado").maybeSingle()); } catch {}
+    if (row?.estado === "creando" && Date.now() - Date.parse(row.actualizado) < 300000) return waitCreate();
+    form(b.entrada, false, b);
+  });
+  on("pVolverAnt", async () => {
+    const { data: r, error } = await sb().rpc("recuperar_expediente", { p_id: ant.id });
+    if (error || r !== "ok") { $("#pVErr").innerHTML = E()._err(r === "creando" ? "La carpeta nueva todavía puede estar armándose. Espera unos minutos y vuelve a intentarlo." : "No pude volver a tu carpeta. Revisa tu conexión e inténtalo de nuevo."); return; }
+    open();
+  });
   on("pAgain", async () => {
     let row = null;
     try { ({ data: row } = await sb().from("expediente").select("estado,actualizado").maybeSingle()); } catch {}
     if (row?.estado === "listo") return open();
     if (row?.estado === "creando" && Date.now() - Date.parse(row.actualizado) < 300000) return waitCreate();   // todavía trabaja: no se borra lo que está por terminar
-    await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; start();
+    await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; Sala.store.set(BORRADOR, null); start();
   });
 }
+
+// Estado del pase visto desde el Modo entrevista: sin conversaciones no hay simulacro; vencido, no hay carpeta nueva
+const paseEstado = () => {
+  const p = P.pase || window.Sala?.pase?.();
+  if (!p) return { agotado: false, vencido: false };
+  return { vencido: p.activo === false || Date.now() >= Date.parse(p.vence), agotado: p.segundos_usados >= p.segundos_total };
+};
+// Toda escritura en la carpeta activa lleva su «iniciado»: si cero filas cambiaron, la carpeta ya no es la que se ve.
+async function guardarCarpeta(patch) {
+  const { data, error } = await sb().from("expediente").update({ ...patch, actualizado: new Date().toISOString() })
+    .eq("user_id", P.row.user_id).eq("iniciado", P.row.iniciado).select("iniciado");
+  if (error) return "error";
+  if (!data?.length) return "cambio";
+  return "ok";
+}
+function carpetaCambio() { P.aviso = friendly.carpeta_cambio; open(); }
 
 /* ---------------- índice y plan: los calcula el código, siempre con la misma fórmula ---------------- */
 function indice() {
@@ -229,7 +299,7 @@ function plan() {
   if (corto) tareas.splice(3);
   orden.filter((q) => (mejor(q.id) ?? 0) < 75).slice(0, corto ? 8 : 20).forEach((q) => tareas.push({ k: "q", q, t: `Responde: ${q.en}` }));
   const ultimo = P.intentos.filter((x) => x.tipo === "simulacro").pop()?.puntaje;
-  if (ultimo == null || ultimo < 75) tareas.push({ k: "s", t: "Haz un simulacro completo" });
+  if ((ultimo == null || ultimo < 75) && !paseEstado().agotado) tareas.push({ k: "s", t: "Haz un simulacro completo" });
   const cupo = d != null && d > 0 ? Math.max(3, Math.ceil(tareas.length / d)) : d == null ? 5 : tareas.length;
   return { nombre, d, hoy: tareas.slice(0, cupo), total: tareas.length };
 }
@@ -242,7 +312,16 @@ function hub() {
   const quando = pl.d == null ? "" : pl.d < 0 ? "La fecha de tu entrevista ya pasó" : pl.d === 0 ? "Tu entrevista es hoy" : pl.d === 1 ? "Tu entrevista es mañana" : `Faltan ${pl.d} días`;
   const reqs = a.requisitos || [];
   const lbl = { cubierto: "Con evidencia", parcial: "Evidencia parcial", sin_evidencia: "Sin evidencia" };
-  paint(`<h1>${esc(P.row.cargo || "Tu entrevista")}</h1>
+  const aviso = P.aviso; P.aviso = null;
+  const fallo = P.row.analisis?.fallo_nueva;
+  if (fallo) {   // se muestra una vez y se borra la marca (atada a esta carpeta)
+    const { fallo_nueva, ...resto } = P.row.analisis; P.row.analisis = resto;
+    guardarCarpeta({ analisis: resto }).catch(() => {});
+  }
+  const borr = Sala.store.get(BORRADOR, null);
+  const reintento = fallo && borr && (!borr.iniciado || !fallo.iniciado || Date.parse(borr.iniciado) === Date.parse(fallo.iniciado));
+  if (borr && !fallo && borr.iniciado && Date.parse(borr.iniciado) === Date.parse(P.row.iniciado)) Sala.store.set(BORRADOR, null);   // la nueva salió bien
+  paint(`${aviso ? `<div class="notice" data-kind="warn" role="status">${esc(aviso)}</div>` : ""}${fallo ? `<div class="notice" data-kind="warn" role="status"><b>No se pudo crear tu carpeta${fallo.cargo ? ` de ${esc(fallo.cargo)}` : " nueva"}.</b> Esta carpeta sigue como estaba, sin perder nada.${reintento ? `<button class="primary wide" id="pReintento">Intentar otra vez con lo que escribiste</button>` : " Puedes intentarlo otra vez con «Preparar otra oferta»."}</div>` : ""}<h1>${esc(P.row.cargo || "Tu entrevista")}</h1>
     <p class="muted">${esc(P.row.empresa || "")}${P.row.empresa && quando ? " · " : ""}${esc(quando)}</p>
     ${pendiente() ? `<div class="notice" data-kind="info"><b>Tienes un simulacro sin informe.</b> Quedó guardado en este teléfono. <button class="primary wide" id="pPend">Pedir el informe</button><button class="linklike" id="pPendNo">Descartarlo</button></div>` : ""}
     <div class="prep-ix"><b>${ix.total}</b><span><strong>${esc(etapa(ix.total))}</strong><small>Índice de preparación de 0 a 100</small></span></div>
@@ -253,7 +332,8 @@ function hub() {
     ${tableroHTML()}
     <h2>${esc(pl.nombre)} · hoy</h2>
     ${pl.hoy.length ? `<div class="list">${pl.hoy.map((t, i) => `<button class="li lesson" data-t="${i}"><span>${esc(t.t)}</span></button>`).join("")}</div>` : `<div class="proof good"><span class="ok">✓ Completaste todo lo pendiente del plan. Repite un simulacro antes de la entrevista.</span></div>`}
-    <button class="primary wide" id="pSim">Hacer un simulacro con voz</button>
+    ${paseEstado().agotado ? `<div class="notice" data-kind="info"><b>Usaste las 15 conversaciones de tu pase.</b> El simulacro es una conversación, así que ya no está disponible; con otro pase vuelve. Puedes seguir practicando tus preguntas y tus historias; la parte del índice que viene de los simulacros (50 de 100) ya no sube.</div>`
+      : `<button class="primary wide" id="pSim">Hacer un simulacro con voz</button>`}
     <div class="tiles one">
       <button class="tile" id="pQs"><span class="ic" aria-hidden="true"><svg><use href="#i-chat"/></svg></span><span><b>Las 20 preguntas</b><small>Practica y mira cómo te vendes</small></span></button>
       <button class="tile" id="pHs"><span class="ic" aria-hidden="true"><svg><use href="#i-pen"/></svg></span><span><b>Tus 5 historias</b><small>${hs.some((h, i) => deHistoria(i).length) ? `${hs.filter((h, i) => Math.max(0, ...deHistoria(i).map((x) => x.puntaje ?? 0)) >= 75).length} de ${hs.length} ya convencen (75 o más)` : "Tus hechos, con tus palabras"}</small></span></button>
@@ -262,7 +342,11 @@ function hub() {
     </div>
     ${a.resumen_es ? `<div class="rc-ctx"><b>Lo que pide este cargo</b><span>${esc(a.resumen_es)}</span></div>` : ""}
     ${reqs.length ? `<details class="prefs"><summary>Tu evidencia frente al cargo</summary><div class="list">${reqs.map((r) => `<div class="li"><span>${esc(r.requisito_es)}</span><span class="meta">${r.origen === "tipico" ? "Típico del cargo · " : ""}${esc(lbl[r.estado] || "")}${r.evidencia_es ? " · " + esc(r.evidencia_es) : ""}</span></div>`).join("")}</div></details>` : ""}
-    <button class="linklike" id="pDel">Borrar mi carpeta</button>`);
+    <h2>¿Te salió otra entrevista?</h2>
+    <button class="ghost wide" id="pOtra">Preparar otra oferta</button>
+    ${P.archivo.length ? `<button class="ghost wide" id="pAnt">Tus carpetas anteriores (${P.archivo.length})</button>` : ""}
+    ${P.archivoError ? `<p class="muted small">No pude cargar tus carpetas anteriores ahora; siguen guardadas. Vuelve a abrir el Modo entrevista para verlas.</p>` : ""}
+    <button class="linklike" id="pDel">Borrar esta carpeta</button>`);
   on("pPend", () => afterSim());
   on("pPendNo", () => { Sala.store.set(PENDIENTE, null); hub(); });
   for (const b of document.querySelectorAll("[data-t]")) b.onclick = () => {
@@ -272,6 +356,7 @@ function hub() {
   on("pFecha", fechaEditar);
   on("pFechaOk", () => guardarFecha($("#pFechaIn").value, "pFechaErr"));
   on("pSim", simulacro); on("pQs", questions); on("pHs", stories); on("pKit", kit); on("pAv", avance); on("pDel", borrar);
+  on("pReintento", () => { const b = Sala.store.get(BORRADOR, null); if (b) form(b.entrada, true, b); }); on("pOtra", otraOferta); on("pAnt", anteriores);
 }
 function tableroHTML() {
   const t = tablero();
@@ -283,8 +368,9 @@ function tableroHTML() {
 }
 async function guardarFecha(v, errId) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v || "")) { $("#" + errId).innerHTML = E()._err("Elige una fecha."); return; }
-  const { error } = await sb().from("expediente").update({ fecha: v, actualizado: new Date().toISOString() }).eq("user_id", P.row.user_id);
-  if (error) { $("#" + errId).innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
+  const r = await guardarCarpeta({ fecha: v });
+  if (r === "cambio") return carpetaCambio();
+  if (r !== "ok") { $("#" + errId).innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
   P.row.fecha = v; hub();
 }
 function fechaEditar() {
@@ -293,24 +379,104 @@ function fechaEditar() {
     <button class="primary wide" id="fdOk">Guardar</button><button class="ghost wide" id="fdQuitar">Todavía no tengo fecha</button>`);
   on("fdOk", () => guardarFecha($("#fdIn").value, "fdErr"));
   on("fdQuitar", async () => {
-    const { error } = await sb().from("expediente").update({ fecha: null, actualizado: new Date().toISOString() }).eq("user_id", P.row.user_id);
-    if (error) { $("#fdErr").innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
+    const r = await guardarCarpeta({ fecha: null });
+    if (r === "cambio") return carpetaCambio();
+    if (r !== "ok") { $("#fdErr").innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return; }
     P.row.fecha = null; hub();
   });
 }
 function borrar() {
   scr("Borrar carpeta", "", hub, BACK);
-  paint(`<h1>¿Borrar tu carpeta?</h1><p class="muted">Se borran tu hoja de vida, la oferta, tus historias y todos tus intentos. No se puede deshacer.</p><div id="dErr"></div><button class="primary wide" id="dYes">Sí, borrar todo</button><button class="ghost wide" id="dNo">Cancelar</button>`);
+  paint(`<h1>¿Borrar esta carpeta?</h1><p class="muted">Se borran la hoja de vida, la oferta, las historias y los intentos de <b>${esc(P.row.cargo || "esta carpeta")}</b>. ${P.archivo.length ? "Tus carpetas anteriores no se tocan. " : ""}No se puede deshacer.</p>
+    <p class="muted small">Si solo quieres prepararte para otro cargo, usa «Preparar otra oferta»: esta carpeta se guarda sin borrar nada.</p>
+    <div id="dErr"></div><button class="primary wide" id="dYes">Sí, borrar esta carpeta</button><button class="ghost wide" id="dNo">Cancelar</button>`);
   on("dNo", hub);
   on("dYes", async () => {
     $("#dYes").disabled = true;
     try {
       const { data } = await sb().auth.getUser(); const uid = data.user.id;
-      const a = await sb().from("expediente_intentos").delete().eq("user_id", uid);
-      const b = await sb().from("expediente").delete().eq("user_id", uid);
-      if (a.error || b.error) throw 0;
+      // Solo los intentos de esta carpeta (antes se borraban también los de las carpetas anteriores)
+      // Carpeta e intentos en una sola transacción, solo si sigue siendo la que se ve (desde otro equipo pudo cambiar)
+      void uid;
+      const { data: rb, error: eb } = await sb().rpc("borrar_expediente_activo", { p_iniciado: P.row.iniciado });
+      if (eb) throw 0;
+      if (rb === "cambio") return carpetaCambio();
+      if (rb !== "ok") throw 0;
       P.row = null; P.intentos = []; start();
     } catch { $("#dErr").innerHTML = E()._err("No se pudo borrar. Inténtalo de nuevo."); $("#dYes").disabled = false; }
+  });
+}
+
+/* ---------------- otra oferta y carpetas anteriores ---------------- */
+function otraOferta() {
+  scr("Otra oferta", "Carpeta nueva", hub, BACK);
+  if (paseEstado().vencido) { paint(`<h1>Prepárate para otra entrevista</h1><div class="notice" data-kind="warn">Tu pase ya no está vigente: para crear una carpeta nueva necesitas un pase activo. Tu carpeta actual y las anteriores siguen guardadas. En Tú → Tu pase ves cómo seguir.</div>`); return; }
+  const hs = historias().filter(completa).length;
+  paint(`<h1>Prepárate para otra entrevista</h1>
+    <p>Tu carpeta de <b>${esc(P.row.cargo || "tu cargo actual")}</b> no se borra: queda en «Carpetas anteriores» con sus historias, respuestas y puntajes, y puedes volver a ella cuando quieras.</p>
+    <p class="muted">La carpeta nueva usa tu hoja de vida${hs ? ` y parte de tus ${hs} ${hs === 1 ? "historia ya trabajada" : "historias ya trabajadas"}: las que sirvan para el cargo nuevo llegan con tus mismos datos` : ""}. Las 8 preguntas propias del cargo son nuevas, y los puntajes de esta carpeta empiezan de cero.</p>
+    <button class="tile" id="nOferta"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Tengo la oferta</b><small>Pega el aviso del cargo nuevo</small></span></button>
+    <button class="tile" id="nPreparo"><span class="ic" aria-hidden="true"><svg><use href="#i-flag"/></svg></span><span><b>Me preparo para otro cargo</b><small>Escribe el tipo de cargo y deja listas tus historias</small></span></button>`);
+  on("nOferta", () => form("oferta", true));
+  on("nPreparo", () => form("preparo", true));
+}
+const fechaC = (iso) => (iso ? new Date(iso).toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" }) : "");
+function anteriores() {
+  const back = P.row ? hub : start;
+  scr("Carpetas anteriores", "", back, P.row ? BACK : "‹ Volver");
+  paint(P.archivo.length ? `<p class="muted">Cada carpeta guarda sus historias, respuestas y puntajes. Puedes volver a una y seguir donde la dejaste.</p>
+    <div class="list">${P.archivo.map((x) => `<button class="li lesson" data-arch="${esc(x.id)}"><span>${esc(x.cargo || "Carpeta sin cargo")}</span><span class="meta">${esc(x.empresa ? x.empresa + " · " : "")}Creada el ${esc(fechaC(x.iniciado))} · guardada el ${esc(fechaC(x.archivado))}</span></button>`).join("")}</div>`
+    : `<p class="muted">No tienes carpetas anteriores.</p>`);
+  for (const b of document.querySelectorAll("[data-arch]")) b.onclick = () => carpetaAnterior(b.dataset.arch);
+}
+async function carpetaAnterior(id) {
+  const g = scr("Carpeta anterior", "", anteriores, "‹ Carpetas");
+  paint(`<p class="muted">Abriendo…</p>`);
+  const [a, b] = await Promise.all([
+    sb().from("expediente_archivo").select("*").eq("id", id).maybeSingle(),
+    sb().from("expediente_intentos").select("tipo,pregunta_id,puntaje,creado,expediente_iniciado").eq("expediente_iniciado", (P.archivo.find((c) => c.id === id) || {}).iniciado || "1970-01-01").order("creado", { ascending: true }).limit(800),
+  ]);
+  if (g !== run) return;
+  const x = a.data;
+  if (!x) { paint(E()._err("No encontré esa carpeta. Puede que la hayas borrado.")); return; }
+  const ints = (b.data ?? []).filter((i) => i.expediente_iniciado === x.iniciado);
+  const qs = x.analisis?.preguntas ?? [], hs = x.historias ?? [];
+  const best = (qid) => { const r = ints.filter((i) => i.tipo === "respuesta" && i.pregunta_id === qid); return r.length ? Math.max(...r.map((i) => i.puntaje ?? 0)) : null; };
+  const buenas = qs.filter((q) => (best(q.id) ?? 0) >= 75).length;
+  const sims = ints.filter((i) => i.tipo === "simulacro").length;
+  paint(`<h1>${esc(x.cargo || "Carpeta anterior")}</h1>
+    <p class="muted">${esc(x.empresa ? x.empresa + " · " : "")}Creada el ${esc(fechaC(x.iniciado))}</p>
+    <div class="kpis"><div><small>Preguntas</small><b>${buenas}/${qs.length}</b></div><div><small>Historias</small><b>${hs.filter(completa).length}/5</b></div><div><small>Simulacros</small><b>${sims}</b></div></div>
+    <div id="aErr"></div>
+    <button class="primary wide" id="aVolver">Volver a esta carpeta</button>
+    ${P.row ? `<p class="muted small">Tu carpeta actual (${esc(P.row.cargo || "sin cargo")}) pasa a «Carpetas anteriores», sin perder nada.</p>` : ""}
+    <h2>Sus historias</h2>
+    ${hs.length ? hs.map((h) => `<div class="rc-ctx"><b>${esc(h.titulo || "Historia")}</b><span>${esc([h.situacion, h.accion, h.resultado].filter(Boolean).join(" "))}</span></div>`).join("") : `<p class="muted">Sin historias.</p>`}
+    <button class="linklike" id="aDel">Borrar esta carpeta anterior</button>`);
+  on("aVolver", async () => {
+    const btn = $("#aVolver"); btn.disabled = true; btn.textContent = "Cambiando de carpeta…";
+    const { data: r, error } = await sb().rpc("recuperar_expediente", { p_id: id });
+    if (error || r !== "ok") {
+      $("#aErr").innerHTML = E()._err(r === "creando" ? "Tu carpeta nueva todavía se está armando. Espera a que termine y vuelve a intentarlo." : "No pude cambiar de carpeta. Revisa tu conexión e inténtalo de nuevo.");
+      btn.disabled = false; btn.textContent = "Volver a esta carpeta"; return;
+    }
+    open();
+  });
+  on("aDel", () => {
+    scr("Borrar carpeta anterior", "", () => carpetaAnterior(id), "‹ Volver");
+    paint(`<h1>¿Borrar la carpeta de ${esc(x.cargo || "este cargo")}?</h1><p class="muted">Se borran su hoja de vida, la oferta, sus historias y sus intentos. Tu carpeta actual no se toca. No se puede deshacer.</p>
+      <div id="adErr"></div><button class="primary wide" id="adYes">Sí, borrarla</button><button class="ghost wide" id="adNo">Cancelar</button>`);
+    on("adNo", () => carpetaAnterior(id));
+    on("adYes", async () => {
+      $("#adYes").disabled = true;
+      const { data } = await sb().auth.getUser(); const uid = data?.user?.id;
+      const activa = P.row?.iniciado && Date.parse(P.row.iniciado) === Date.parse(x.iniciado);
+      const i1 = activa ? { error: null } : await sb().from("expediente_intentos").delete().eq("user_id", uid).eq("expediente_iniciado", x.iniciado);
+      const i2 = await sb().from("expediente_archivo").delete().eq("id", id);
+      if (i1.error || i2.error) { $("#adErr").innerHTML = E()._err("No se pudo borrar. Inténtalo de nuevo."); $("#adYes").disabled = false; return; }
+      P.archivo = P.archivo.filter((c) => c.id !== id);
+      anteriores();
+    });
   });
 }
 
@@ -353,13 +519,13 @@ function practice(q, opts = {}) {
     if (texto.length < 8) { $("#pErr").innerHTML = E()._err(friendly.muy_corta); return; }
     const b = $("#pGo"); b.disabled = true; b.textContent = "Revisando…";
     try {
-      const r = await Sala.fnFetch("entrevista", { modo: "vender", pregunta_id: q.id, pregunta: q.en, texto, historia: opts.historia ?? null, voz: !!pron?.text, level: Sala.level() });
+      const r = await Sala.fnFetch("entrevista", { modo: "vender", iniciado: P.row.iniciado, pregunta_id: q.id, pregunta: q.en, texto, historia: opts.historia ?? null, voz: !!pron?.text, level: Sala.level() });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw j;
       if (g !== run) return;
       P.intentos.push({ tipo: "respuesta", pregunta_id: q.id, puntaje: j.puntaje, creado: new Date().toISOString(), evaluacion: j.evaluacion });
       result(q, opts, texto, j, pron);
-    } catch (j) { if (g === run) { $("#pErr").innerHTML = E()._err(failMsg(j)); b.disabled = false; b.textContent = "Revisar cómo me vendí"; } }
+    } catch (j) { if (j?.error === "carpeta_cambio") return carpetaCambio(); if (g === run) { $("#pErr").innerHTML = E()._err(failMsg(j)); b.disabled = false; b.textContent = "Revisar cómo me vendí"; } }
   });
 }
 const SIGNO = { si: ["✓", "Sí"], parcial: ["◐", "A medias"], no: ["✕", "Falta"] };
@@ -412,9 +578,10 @@ function story(i) {
     <button class="ghost wide" id="hSave">Guardar</button>`);
   const save = async () => {
     const list = historias().slice();
-    list[i] = { ...h, situacion: $("#hS").value.trim(), accion: $("#hA").value.trim(), resultado: $("#hR").value.trim() };
-    const { error } = await sb().from("expediente").update({ historias: list, actualizado: new Date().toISOString() }).eq("user_id", P.row.user_id);
-    if (error) { $("#hErr").innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return false; }
+    list[i] = { ...h, situacion: $("#hS").value.trim(), accion: $("#hA").value.trim(), resultado: $("#hR").value.trim(), editada: true };   // editada: sus cifras son de la persona (otra oferta las respeta)
+    const r = await guardarCarpeta({ historias: list });
+    if (r === "cambio") { carpetaCambio(); return false; }
+    if (r !== "ok") { $("#hErr").innerHTML = E()._err("No se pudo guardar. Inténtalo de nuevo."); return false; }
     P.row.historias = list; return true;
   };
   on("hSave", async () => { if (await save()) stories(); });
@@ -439,27 +606,32 @@ After each answer you may ask ONE short follow-up if it was vague, asking for a 
 }
 // El simulacro queda guardado en este equipo hasta que llegue su informe: sin señal o si iOS cierra la app no se pierde.
 const PENDIENTE = "simPendiente";
+const BORRADOR = "prepBorrador";   // lo último que se envió para crear una carpeta (para reintentar si falla)
+// Atado a la carpeta en que se hizo: solo se ofrece en ella (antes su puntaje caía en la carpeta que estuviera activa)
 const pendiente = () => {
   const p = Sala.store.get(PENDIENTE, null);
-  return p && Array.isArray(p.hist) && Date.now() - Date.parse(p.fecha) < 7 * 864e5 ? p : null;
+  if (!(p && Array.isArray(p.hist) && Date.now() - Date.parse(p.fecha) < 7 * 864e5)) return null;
+  return !p.iniciado || !P.row?.iniciado || Date.parse(p.iniciado) === Date.parse(P.row.iniciado) ? p : null;
 };
 function guardarSim(hist) {
   P.hist = hist;
-  if (hist && hist.filter((t) => t.role === "user").length >= 3) Sala.store.set(PENDIENTE, { hist, fecha: new Date().toISOString() });
+  if (hist && hist.filter((t) => t.role === "user").length >= 3) Sala.store.set(PENDIENTE, { hist, fecha: new Date().toISOString(), iniciado: P.row?.iniciado || null });
 }
 async function afterSim() {
-  const hist = P.hist || pendiente()?.hist; P.hist = null;
+  const pend = pendiente(), carpeta = P.hist ? P.row?.iniciado : (pend?.iniciado || P.row?.iniciado);
+  const hist = P.hist || pend?.hist; P.hist = null;
   if (!hist || hist.filter((t) => t.role === "user").length < 3) return open();
   const g = scr("Informe del simulacro", "", open, BACK);
   paint(`<p class="muted">Revisando cómo te vendiste en cada respuesta…</p>`);
   try {
-    const r = await Sala.fnFetch("entrevista", { modo: "informe", turnos: hist });
+    const r = await Sala.fnFetch("entrevista", { modo: "informe", turnos: hist, iniciado: carpeta });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw j;
     Sala.store.set(PENDIENTE, null);
     if (g !== run) return;
     report(j.informe, j.puntaje);
   } catch (j) {
+    if (j?.error === "carpeta_cambio") return carpetaCambio();   // el simulacro sigue guardado y se ofrece en su carpeta
     if (g !== run) return;
     paint(E()._err(failMsg(j)) + `<p class="muted small">Tu simulacro quedó guardado en este teléfono. Puedes pedir el informe ahora o más tarde desde tu carpeta.</p>
       <button class="primary wide" id="iRetry">Pedir el informe otra vez</button><button class="ghost wide" id="iBack">Volver a tu carpeta</button>`);
@@ -492,13 +664,13 @@ function kit() {
 async function pedirKit(modo, datos, btn, errId, volver) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = "Preparando…"; const g = run;
   try {
-    const r = await Sala.fnFetch("entrevista", { modo, ...datos, level: Sala.level() });
+    const r = await Sala.fnFetch("entrevista", { modo, ...datos, iniciado: P.row?.iniciado, level: Sala.level() });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw j;
     if (g !== run) return;
     P.row.analisis = { ...(P.row.analisis || {}), kit: { ...(P.row.analisis?.kit || {}), [modo]: j.resultado } };
     volver(j.resultado);
-  } catch (j) { if (g === run) { document.getElementById(errId).innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = orig; } }
+  } catch (j) { if (j?.error === "carpeta_cambio") return carpetaCambio(); if (g === run) { document.getElementById(errId).innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = orig; } }
 }
 function salario() {
   scr("Guion de salario", "", kit, "‹ Volver");
