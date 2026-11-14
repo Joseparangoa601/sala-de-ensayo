@@ -98,6 +98,9 @@
   .hero header{max-width:640px;padding:28px 0 40px}
   .hero .brand{color:#c3cccE}.hero .l10{color:#fff}.hero .brand .sep{background:rgba(255,255,255,.25)}
   .hero .entrar{border-color:#7fd8ec;color:#7fd8ec}
+  .probar-cta{text-decoration:none;margin:0 0 12px}
+  .hero a.probar-cta{color:var(--action-ink)}
+  .cta.sec{background:transparent;border:2px solid var(--action);color:inherit}
   .probar{display:inline-block;margin:.9em 0 0;font-weight:700;text-decoration:underline;text-underline-offset:3px}
   .hero .lead{color:#d3dadc}.hero .note{color:#b8c2c5}.hero a{color:#7fd8ec}
   .hero-fondo{position:absolute;inset:0;z-index:-1;background:#0E1216}
@@ -430,7 +433,18 @@
     document.getElementById("cookiesCambiar").onclick = () => { caja.hidden = false; };
     if (decision === "si") cargarPixel(); else if (!decision) caja.hidden = false;
   }
-  document.querySelector("a.probar")?.addEventListener("click", () => fbqEvento("Lead", { content_name: "prueba" }));
+  // Quien llega de un anuncio no conoce la app: la prueba gratis va primero y la compra queda como segunda opción.
+  // (14-nov: ~40 visitas de anuncios, ninguna empezó la prueba con la compra arriba). Las visitas directas no cambian.
+  if (/[?&](utm_source|utm_campaign|utm_content|fbclid|gclid|ttclid)=/.test(location.search)) {
+    const probar = document.querySelector(".hero a.probar"), comprar = document.querySelector('[data-cta="hero"]');
+    if (probar && comprar) {
+      probar.className = "cta probar-cta";
+      probar.innerHTML = "Pruébala gratis: una entrevista de 5 respuestas<small>Sin cuenta y sin tarjeta · al final ves tu evaluación</small>";
+      comprar.classList.add("sec");
+      comprar.parentNode.insertBefore(probar, comprar);
+    }
+  }
+  document.querySelector("a.probar, a.probar-cta")?.addEventListener("click", () => fbqEvento("Lead", { content_name: "prueba" }));
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
     fbqEvento("InitiateCheckout", { value: precio, currency: "USD" });
     if (enProduccion) track("cta", { donde: `${b.dataset.cta}-${precio}` }).catch(() => {});   // qué precio vio quien tocó
