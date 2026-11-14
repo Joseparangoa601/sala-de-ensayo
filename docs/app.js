@@ -200,12 +200,12 @@ function proofHTML(c) {
   if (!c) return "";
   // Si estuvo bien y es larga, la versión escrita muestra dónde van las pausas y los puntos.
   const escrita = c.ok && c.better && !c.natural && String(c.better).split(/\s+/).length >= 12;
-  if (c.ok && !c.natural && !c.tip && !escrita) return `<div class="proof good"><span class="ok">✓ Correcto</span></div>`;
+  if (c.ok && !nativoDistinto(c) && !c.tip && !escrita) return `<div class="proof good"><span class="ok">✓ Correcto</span></div>`;
   let h = `<div class="proof ${c.ok ? "good" : ""}">`;
   if (c.ok) h += `<span class="ok">✓ Correcto</span>`;
   if (escrita) h += `<div class="row"><b>Con puntos</b><span class="alt">${esc(c.better)}</span></div>`;
   if (!c.ok && c.better) h += `<div class="row"><b>Correcto</b><span class="fixed">${wordDiff(c.original, c.better).fixed}</span></div>`;
-  if (c.natural) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.natural)}</span></div>`;
+  if (nativoDistinto(c)) h += `<div class="row"><b>Nativo</b><span class="alt">${esc(c.natural)}</span></div>`;
   if (c.tip) h += `<div class="tip">${esc(c.tip)}</div>`;
   return h + `</div>`;
 }
@@ -390,17 +390,34 @@ function systemSpeak(text, item, lang = "en-US") {
 // Una voz nativa por idioma: la voz multilingüe salía ronca en la primera palabra al pasar del inglés al español.
 const COACH_VOICES = [{ en: "en-US-AvaNeural", es: "es-MX-DaliaNeural" }, { en: "en-US-AndrewNeural", es: "es-MX-JorgeNeural" }];
 function coachVoice() { const v = S.scene ? voiceFor(S.scene) : ""; return /Ava/.test(v) ? COACH_VOICES[1] : COACH_VOICES[0]; }
+// «Nativo» solo si dice algo distinto de «Correcto»: si son la misma frase no se muestra ni se lee dos veces
+const normFrase = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9']+/g, " ").trim();
+const nativoDistinto = (c) => !!c.natural && (c.ok || normFrase(c.natural) !== normFrase(c.better));
 function coachParts(c) {
   // [idioma, texto]: el español lo dice en español y las frases en inglés, en inglés y un poco más lento.
   const p = [];
   if (!c.ok && c.better) { p.push(["es", "Mejor di:"], ["en", c.better]); }
-  if (c.natural) { p.push(["es", c.ok ? "Está bien. Un nativo diría:" : "Y más natural:"], ["en", c.natural]); }
-  if (c.tip) p.push(...trozosTip(c.tip));
+  if (nativoDistinto(c)) { p.push(["es", c.ok ? "Está bien. Un nativo diría:" : "Y más natural:"], ["en", c.natural]); }
+  if (c.tip) p.push(...trozosTip(c.tip, [c.original, c.better, c.natural]));
   return p;
 }
+// ¿Lo citado es español? Una palabra suelta sin tilde («parece») se leía con la voz inglesa.
+// Inglés si aparece en las frases en inglés de la corrección; si no, español cuando tiene tilde, palabras
+// frecuentes del español o terminaciones españolas sin rasgos del inglés.
+const ES_FRECUENTES = new Set("de la el los las un una que en es se no por para con como del al lo su sus más pero ya muy hay ser estar tener hacer decir parece parecer suena sueña dice digo hace tiene está están eres soy fue era desde hace cuando donde quien porque sino también entonces ahora aquí allí bien mal mejor peor".split(" "));
+function citaEnEspanol(cita, ingles) {
+  const t = cita.toLowerCase().trim();
+  if (/[áéíóúñ¿¡]/i.test(t)) return true;
+  if (ingles.some((f) => f && ` ${normFrase(f)} `.includes(` ${normFrase(t)} `))) return false;
+  const pal = t.split(/[^a-zà-ÿ]+/).filter(Boolean);
+  if (!pal.length) return false;
+  if (pal.some((w) => ES_FRECUENTES.has(w))) return true;
+  return pal.every((w) => w.length >= 5 && !/(th|sh|w|k|ee|oo|y$)/.test(w) && /(ción|ciones|mente|dad|ado|ada|ido|ida|ando|iendo|ece|ecen)$/.test(w));
+}
 // La explicación mezcla español con frases en inglés entre comillas: cada trozo se lee en su idioma.
+// «…» siempre es español (así lo pide el prompt); "…" es inglés salvo que lo citado sea claramente español.
 // Sin comillas leídas como signos: la ' tras un número se pronunciaba «minutos».
-function trozosTip(tip) {
+function trozosTip(tip, ingles = []) {
   const t = String(tip), out = [], letra = (c) => !!c && /[A-Za-zÀ-ÿ0-9]/.test(c);
   let es = "", i = 0;
   const cierraEs = () => { const s = es.replace(/^[\s,.;:]+/, "").trim(); if (/[A-Za-zÀ-ÿ]/.test(s)) out.push(["es", s]); es = ""; };
@@ -413,7 +430,7 @@ function trozosTip(tip) {
     }
     if (fin > i + 1) {
       const cita = t.slice(i + 1, fin).trim();
-      if (/[áéíóúñ¿¡]/i.test(cita)) es += " " + cita + " ";   // lo citado está en español
+      if (c === "«" || citaEnEspanol(cita, ingles)) es += " " + cita + " ";   // lo citado está en español
       else { cierraEs(); out.push(["en", cita]); }
       i = fin + 1;
     } else { es += c; i++; }
@@ -1198,8 +1215,10 @@ function openScene() {
   S.history.push({ role: "assistant", content: S.scene.open });
   addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
   // Consejo de audífonos en las 2 primeras conversaciones: sin ellos el micrófono capta el ruido y la voz del personaje
-  const nAud = +store.get("tipAudif", 0);
-  if (nAud < 2) { store.set("tipAudif", nAud + 1); notice("Consejo: usa audífonos con micrófono (los del celular sirven). Aíslan el ruido de afuera y evitan que el micrófono capte la voz del personaje, así la app te entiende mejor.", "info"); }
+  // Se cuenta por cuenta (y aparte para la prueba sin cuenta): en un teléfono compartido la cuenta nueva también lo ve
+  const kAud = "tipAudif:" + (S.session?.user?.id || (S.prueba ? "prueba" : "anon"));
+  const nAud = +store.get(kAud, 0);
+  if (nAud < 2) { store.set(kAud, nAud + 1); notice("Consejo: usa audífonos con micrófono (los del celular sirven). Aíslan el ruido de afuera y evitan que el micrófono capte la voz del personaje, así la app te entiende mejor.", "info"); }
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
 }
 const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
@@ -1489,7 +1508,7 @@ function renderHome() {
   // Usar el gesto una vez (aquí o en Tus lecciones) basta para aprenderlo: la pista ya no vuelve
   for (const r of $("#scenes").querySelectorAll(".srow.desliza")) deslizable(r, ".scene", () => { store.set("pistaDeslizar", true); $("#scenes .lpista")?.remove(); });
   const dayId = sceneOfDay()?.id;
-  $("#hoyScenes").innerHTML = visibleScenes().filter((s) => s.id !== dayId).slice(0, 3).map(card).join("");
+  $("#hoyScenes").innerHTML = visibleScenes().filter((s) => s.id !== dayId).slice(0, 4).map(card).join("");   // 4: la cuadrícula es de 2 columnas
   for (const b of document.querySelectorAll(".scene[data-id]")) b.onclick = () => {
     const row = b.closest("#scenes .srow");
     if (row?.dataset.recien) return;                                             // recién soltaste un deslizamiento
@@ -1692,7 +1711,7 @@ function wire() {
     const email = $("#email").value.trim().toLowerCase(), clave = $("#password").value;   // el correo nunca distingue mayúsculas
     const { error } = await sb.auth.signInWithPassword({ email, password: clave });
     if (!error && clave === email.split("@")[0]) { store.set("forzarClave", true); setTimeout(() => window.Estudio?.password(true), 80); }   // entró con la clave inicial: debe cambiarla
-    if (error) $("#loginErr").textContent = error.status >= 400 && error.status < 500 && error.status !== 429 ? "No pude entrar: revisa el correo y la contraseña." : "No pude conectar. Revisa tu internet e intenta de nuevo.";
+    if (error) $("#loginErr").textContent = error.status >= 400 && error.status < 500 && error.status !== 429 ? "No pude entrar: revisa el correo y la contraseña. Si compraste tu pase, entra con el correo que usaste para pagar en Hotmart." : "No pude conectar. Revisa tu internet e intenta de nuevo.";
   });
   $("#orb").onclick = () => {
     if (S.state === "idle") begin();
@@ -1887,7 +1906,7 @@ function terminarPrueba() {
   const listo = () => {
     if (!S.scene) return;
     if (S.corrPend > 0 && Date.now() - t0 < 6000) { setTimeout(listo, 300); return; }
-    if (S.prueba) trackPrueba("fin");
+    if (S.prueba && S.finContado !== S.pruebaToken) { S.finContado = S.pruebaToken; trackPrueba("fin"); }   // una vez por prueba: se contaba en cada cierre
     $("#backBtn").click();
   };
   listo();

@@ -8,7 +8,7 @@ const E = () => window.Estudio;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (s) => document.querySelector(s);
 const SIM = "Simulacro de entrevista";
-const BACK = "‹ Expediente";
+const BACK = "‹ Tu carpeta";
 const P = { row: null, intentos: [], sims: [], hist: null };
 let run = 0;   // cambia con cada pantalla: lo que llegue tarde no pinta sobre otra
 
@@ -101,8 +101,8 @@ async function load() {
 
 async function open() {
   const g = scr("Modo entrevista", "", null);
-  paint(`<p class="muted">Abriendo tu expediente…</p>`);
-  try { await load(); } catch { if (g === run) paint(E()._err("No pude abrir tu expediente. Revisa tu conexión.") + `<button class="primary wide" id="pRetry">Intentar otra vez</button>`); on("pRetry", open); return; }
+  paint(`<p class="muted">Abriendo tu carpeta…</p>`);
+  try { await load(); } catch { if (g === run) paint(E()._err("No pude abrir tu carpeta. Revisa tu conexión.") + `<button class="primary wide" id="pRetry">Intentar otra vez</button>`); on("pRetry", open); return; }
   if (g !== run) return;
   if (!P.row) return start();
   if (P.row.estado === "creando") return waitCreate();
@@ -114,7 +114,7 @@ async function open() {
 function start() {
   scr("Modo entrevista", "Prepárate en inglés", null);
   paint(`<h1>Tu entrevista en inglés</h1>
-    <p class="muted">Primero armamos tu expediente: tus historias reales, las preguntas que te harían y un plan. Todo lo que practiques se queda aquí.</p>
+    <p class="muted">Primero armamos tu carpeta: tus historias reales, las preguntas que te harían y un plan. Todo lo que practiques se queda aquí.</p>
     <button class="tile" id="pOferta"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Tengo una oferta</b><small>Pega el aviso del cargo y te preparas para ese puesto</small></span></button>
     <button class="tile" id="pPreparo"><span class="ic" aria-hidden="true"><svg><use href="#i-flag"/></svg></span><span><b>Me preparo para cuando llegue</b><small>Elige el tipo de cargo y deja listas tus historias</small></span></button>`);
   on("pOferta", () => form("oferta"));
@@ -122,7 +122,7 @@ function start() {
 }
 function form(entrada) {
   const oferta = entrada === "oferta";
-  scr(oferta ? "Tengo una oferta" : "Me preparo", "Tu expediente", start, "‹ Volver");
+  scr(oferta ? "Tengo una oferta" : "Me preparo", "Tu carpeta", start, "‹ Volver");
   paint(`<label for="fCargo">${oferta ? "Cargo (si no está claro en el aviso)" : "¿Para qué cargo te preparas?"}</label>
     <input id="fCargo" maxlength="120" placeholder="Ej.: Analista de datos">
     ${oferta ? `<label for="fEmpresa">Empresa (opcional)</label><input id="fEmpresa" maxlength="120">
@@ -135,7 +135,7 @@ function form(entrada) {
     <textarea id="fCv" rows="9" maxlength="12000" placeholder="…o pega aquí el texto de tu hoja de vida"></textarea>
     <p class="muted small">Tu hoja de vida se guarda en tu cuenta y se procesa con inteligencia artificial para preparar tus respuestas. Puedes borrarla cuando quieras. La app solo usa datos que estén en lo que pegas.</p>
     <div id="fErr"></div>
-    <button class="primary wide" id="fGo">Crear mi expediente</button>`);
+    <button class="primary wide" id="fGo">Crear mi carpeta</button>`);
   $("#fArchivo").onchange = async (e) => {
     const f = e.target.files?.[0], msg = $("#fArchivoMsg"); if (!f) return;
     msg.className = "small muted"; msg.textContent = `Leyendo «${f.name}»…`;
@@ -144,7 +144,7 @@ function form(entrada) {
       const palabras = (t.match(/\S+/g) || []).length;
       if (palabras < 30) { msg.className = "small"; msg.textContent = "No encontré texto en ese archivo: puede ser una imagen escaneada. Súbelo en Word o pega el texto."; return; }
       $("#fCv").value = t.slice(0, 12000); $("#fErr").innerHTML = "";
-      msg.className = "small ok"; msg.textContent = `Listo: leí ${palabras} palabras. Revisa abajo que esté todo bien antes de crear tu expediente.`;
+      msg.className = "small ok"; msg.textContent = `Listo: leí ${palabras} palabras. Revisa abajo que esté todo bien antes de crear tu carpeta.`;
     } catch (x) {
       msg.className = "small"; msg.textContent = x?.message === "tipo" ? "Ese tipo de archivo no lo puedo leer. Usa PDF o Word (.docx)." : "No pude leer el archivo. Revisa tu conexión o pega el texto.";
     } finally { e.target.value = ""; }
@@ -161,16 +161,16 @@ function form(entrada) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw j;
       waitCreate();
-    } catch (j) { $("#fErr").innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = "Crear mi expediente"; }
+    } catch (j) { $("#fErr").innerHTML = E()._err(failMsg(j)); btn.disabled = false; btn.textContent = "Crear mi carpeta"; }
   });
 }
 const PASOS_CREAR = [[0, "Leyendo tu hoja de vida"], [15, "Buscando tus historias reales"], [35, "Armando las preguntas que te harían"], [60, "Conectando tus historias con el cargo"], [90, "Últimos detalles"]];
 async function waitCreate() {
-  const g = scr("Modo entrevista", "Creando tu expediente", () => Sala.backHome(), "‹ Inicio");
-  paint(`<h1>Estoy armando tu expediente</h1>
+  const g = scr("Modo entrevista", "Creando tu carpeta", () => Sala.backHome(), "‹ Inicio");
+  paint(`<h1>Estoy armando tu carpeta</h1>
     <ol class="pasos-crear" id="cPasos">${PASOS_CREAR.map(([, t]) => `<li>${t}</li>`).join("")}</ol>
     <p class="muted small" id="cSeg" role="status">Suele tardar cerca de un minuto.</p>
-    <p class="muted small">Puedes salir: el expediente se sigue armando y lo encuentras listo al volver.</p>`);
+    <p class="muted small">Puedes salir: la carpeta se sigue armando y la encuentras lista al volver.</p>`);
   const t0 = Date.now();
   const pintar = () => {
     const s = Math.round((Date.now() - t0) / 1000), k = PASOS_CREAR.filter(([d]) => s >= d).length - 1;
@@ -191,7 +191,7 @@ async function waitCreate() {
 }
 function createFailed() {
   scr("Modo entrevista", "", null);
-  paint(E()._err("No se pudo crear el expediente.") + `<button class="primary wide" id="pAgain">Empezar otra vez</button>`);
+  paint(E()._err("No se pudo crear la carpeta.") + `<button class="primary wide" id="pAgain">Empezar otra vez</button>`);
   on("pAgain", async () => {
     let row = null;
     try { ({ data: row } = await sb().from("expediente").select("estado,actualizado").maybeSingle()); } catch {}
@@ -262,7 +262,7 @@ function hub() {
     </div>
     ${a.resumen_es ? `<div class="rc-ctx"><b>Lo que pide este cargo</b><span>${esc(a.resumen_es)}</span></div>` : ""}
     ${reqs.length ? `<details class="prefs"><summary>Tu evidencia frente al cargo</summary><div class="list">${reqs.map((r) => `<div class="li"><span>${esc(r.requisito_es)}</span><span class="meta">${r.origen === "tipico" ? "Típico del cargo · " : ""}${esc(lbl[r.estado] || "")}${r.evidencia_es ? " · " + esc(r.evidencia_es) : ""}</span></div>`).join("")}</div></details>` : ""}
-    <button class="linklike" id="pDel">Borrar mi expediente</button>`);
+    <button class="linklike" id="pDel">Borrar mi carpeta</button>`);
   on("pPend", () => afterSim());
   on("pPendNo", () => { Sala.store.set(PENDIENTE, null); hub(); });
   for (const b of document.querySelectorAll("[data-t]")) b.onclick = () => {
@@ -299,8 +299,8 @@ function fechaEditar() {
   });
 }
 function borrar() {
-  scr("Borrar expediente", "", hub, BACK);
-  paint(`<h1>¿Borrar tu expediente?</h1><p class="muted">Se borran tu hoja de vida, la oferta, tus historias y todos tus intentos. No se puede deshacer.</p><div id="dErr"></div><button class="primary wide" id="dYes">Sí, borrar todo</button><button class="ghost wide" id="dNo">Cancelar</button>`);
+  scr("Borrar carpeta", "", hub, BACK);
+  paint(`<h1>¿Borrar tu carpeta?</h1><p class="muted">Se borran tu hoja de vida, la oferta, tus historias y todos tus intentos. No se puede deshacer.</p><div id="dErr"></div><button class="primary wide" id="dYes">Sí, borrar todo</button><button class="ghost wide" id="dNo">Cancelar</button>`);
   on("dNo", hub);
   on("dYes", async () => {
     $("#dYes").disabled = true;
@@ -379,7 +379,7 @@ function result(q, opts, texto, j, pron) {
     <div class="rc-ctx"><b>Tu versión más fuerte</b><span class="en">${marks(v.version_fuerte_en)}</span>
       ${/\[/.test(v.version_fuerte_en) ? `<span class="muted small">Lo que está entre corchetes solo lo sabes tú. Cámbialo por tu dato real.</span>` : ""}
       ${(v.confirmar || []).length ? `<span class="small"><b>Confirma antes de decirlo:</b> ${v.confirmar.map((n) => `«${esc(n)}»`).join(", ")} ${v.confirmar.length === 1 ? "no aparece" : "no aparecen"} en tu hoja de vida. Si es exacto, ten a mano cómo lo mediste: en la entrevista te lo pueden preguntar.</span>` : ""}
-      ${usa.length ? `<span class="muted small">Tomado de tu expediente, confírmalo: ${esc(usa.join("; "))}</span>` : ""}
+      ${usa.length ? `<span class="muted small">Tomado de tu carpeta, confírmalo: ${esc(usa.join("; "))}</span>` : ""}
       <button class="replay" id="rListen">Escuchar</button></div>
     ${v.ingles?.better ? `<div class="rc-ctx"><b>${v.ingles.ok ? "✓ Tu inglés está correcto" : "Tu inglés, corregido"}</b><span class="en">${esc(v.ingles.better)}</span>${v.ingles.natural ? `<span class="muted small">Más natural: <span class="en">${esc(v.ingles.natural)}</span></span>` : ""}${v.ingles.tip_es ? `<span class="muted small">${esc(v.ingles.tip_es)}</span>` : ""}</div>` : ""}
     ${pron?.palabras?.length ? `<details class="prefs"><summary>Tu pronunciación</summary>${E()._scores(pron)}${E()._words(pron.palabras)}</details>` : ""}
@@ -461,8 +461,8 @@ async function afterSim() {
     report(j.informe, j.puntaje);
   } catch (j) {
     if (g !== run) return;
-    paint(E()._err(failMsg(j)) + `<p class="muted small">Tu simulacro quedó guardado en este teléfono. Puedes pedir el informe ahora o más tarde desde tu expediente.</p>
-      <button class="primary wide" id="iRetry">Pedir el informe otra vez</button><button class="ghost wide" id="iBack">Volver al expediente</button>`);
+    paint(E()._err(failMsg(j)) + `<p class="muted small">Tu simulacro quedó guardado en este teléfono. Puedes pedir el informe ahora o más tarde desde tu carpeta.</p>
+      <button class="primary wide" id="iRetry">Pedir el informe otra vez</button><button class="ghost wide" id="iBack">Volver a tu carpeta</button>`);
     on("iRetry", () => { P.hist = hist; afterSim(); });
     on("iBack", open);
   }
@@ -474,7 +474,7 @@ function report(v, puntaje) {
     <div class="reto"><span class="lbl">Arregla primero</span><ul class="ul">${(v.prioridades_es || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
     <h2>Respuesta por respuesta</h2>
     <div class="list">${(v.respuestas || []).map((a) => `<div class="li"><span class="meta">${esc(a.pregunta_en)}</span><span>${esc(a.dijiste)}</span><span class="meta">Hecho ${dot(a.hecho)} · Acción ${dot(a.accion)} · Resultado ${dot(a.resultado)} · Cargo ${dot(a.relacion)}</span><span class="small">${esc(a.mejora_es)}</span></div>`).join("")}</div>
-    <button class="primary wide" id="iDone">Volver al expediente</button>`);
+    <button class="primary wide" id="iDone">Volver a tu carpeta</button>`);
   on("iDone", open);
 }
 /* ---------------- kit para el día de la entrevista ---------------- */
