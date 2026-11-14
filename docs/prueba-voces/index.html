@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Prueba de voces · Sala de Ensayo</title>
+<title>Elige la voz · Sala de Ensayo</title>
 <meta name="robots" content="noindex">
 <!-- Prueba a ciegas de voces (nov-2026): Azure Neural vs Azure HD vs ElevenLabs. Orden aleatorio por persona; se guarda solo la elección. -->
 <style>
@@ -31,13 +31,15 @@
 <body>
 <div class="wrap">
   <p class="muted" style="margin:0;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.8rem">Sala de Ensayo · prueba de voces</p>
-  <h1>¿Cuál voz suena más a una persona?</h1>
-  <p class="muted">Son 5 rondas cortas (unos 4 minutos). En cada una escuchas la misma frase con voces distintas, en orden al azar. Usa audífonos si puedes. No hay respuestas correctas.</p>
+  <h1>Ayúdanos a elegir la voz de Sala de Ensayo</h1>
+  <p class="muted">Estamos probando voces nuevas para los personajes y la coach. Son 5 rondas cortas (unos 4 minutos). En cada una escuchas la misma frase con voces distintas, en orden al azar. Usa audífonos si puedes. No hay respuestas correctas.</p>
 
   <div class="card">
     <h2>Antes de empezar</h2>
     <p class="preg">Tu nivel de inglés</p>
     <select id="nivel"><option value="">Elige…</option><option>Básico (A2)</option><option>Intermedio (B1)</option><option>Intermedio alto (B2)</option><option>Avanzado (C1)</option><option>No sé</option></select>
+    <p class="preg">¿Ya usas Sala de Ensayo?</p>
+    <div class="opts"><label><input type="radio" name="usa" value="si"> Sí</label><label><input type="radio" name="usa" value="no"> No</label></div>
     <p class="preg">¿Estás escuchando con audífonos?</p>
     <div class="opts"><label><input type="radio" name="audif" value="si"> Sí</label><label><input type="radio" name="audif" value="no"> No</label></div>
   </div>
@@ -105,9 +107,11 @@ document.getElementById("enviar").addEventListener("click", async () => {
     if (v === undefined) { faltan++; continue; }
     resp[`${r.id}_${pk}`] = v === "igual" ? "igual" : r.orden[+v].k;   // se guarda el proveedor, no la letra
   }
+  if (!val("usa")) faltan++;
   if (faltan) { est.textContent = `Te faltan ${faltan} preguntas por responder.`; return; }
   const ua = navigator.userAgent;
-  const datos = { v: 2, resp, nivel: document.getElementById("nivel").value, audifonos: val("audif") ?? "",
+  const canal = (new URLSearchParams(location.search).get("o") || "directo").replace(/[^a-z0-9_-]/gi, "").slice(0, 20);
+  const datos = { v: 3, resp, usa: val("usa"), canal, nivel: document.getElementById("nivel").value, audifonos: val("audif") ?? "",
     equipo: /iPhone|iPad/.test(ua) ? "iphone" : /Android/.test(ua) ? "android" : "computador",
     opciones: Object.fromEntries(RONDAS.map((r) => [r.id, r.orden.map((o) => o.k)])) };
   const C = window.SALA_CONFIG;

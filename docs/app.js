@@ -2030,3 +2030,5 @@ window.Sala = {
 // Espera a que carguen todos los scripts: boot usa Estudio y Repaso, que van después de este archivo
 document.addEventListener("DOMContentLoaded", boot);
 })();
+// Encuesta de voces: visible hasta el cierre (30-nov-2026, hora Colombia)
+{ const vt = document.getElementById("vozTile"); if (vt) vt.hidden = Date.now() > Date.parse("2026-12-01T05:00:00Z"); }
