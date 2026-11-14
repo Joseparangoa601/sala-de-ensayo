@@ -64,7 +64,7 @@ function closeRec() {
 // reference: texto de referencia (shadowing) o null (habla libre). Devuelve {promise, stop}.
 function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, autoEnd = false, grabar = false } = {}) {
   let resolveFn; const promise = new Promise((r) => (resolveFn = r));
-  const segs = []; let done = false, idle = null, cap = null, heardAny = false, own = null;
+  const segs = []; let done = false, idle = null, cap = null, heardAny = false, own = null, fallo = null;
   let micro = null, grab = null, trozos = [];
   const rg = recGen;
   const refWords = reference ? (reference.match(/[A-Za-z0-9']+/g) || []).length : 0;
@@ -73,6 +73,7 @@ function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, auto
     clearTimeout(idle); clearTimeout(cap);
     if (own && rec === own) closeRec();   // solo el propio: nunca detener una grabación más nueva
     const out = summarize(segs);
+    if (fallo) out.error = Sala.limiteMsg(fallo) || null;   // pase vencido o tope del día: se dice eso, no «revisa el micrófono»
     if (!grab) { micro?.getTracks().forEach((t) => t.stop()); resolveFn(out); return; }
     const g = grab; grab = null;
     let listo = false;
@@ -87,7 +88,7 @@ function recognize({ reference = null, maxMs = 75000, onPartial = () => {}, auto
   };
   const armIdle = () => { clearTimeout(idle); if (autoEnd && heardAny) idle = setTimeout(finish, 3500); };
   (async () => {
-    try { await Sala.ensureVoice(); } catch { finish(); return; }
+    try { await Sala.ensureVoice(); } catch (e) { fallo = e; finish(); return; }
     if (done) return;                                  // ya se detuvo: no abrir el micrófono
     if (rg !== recGen) { finish(); return; }           // se salió de la pantalla o del paso durante la espera
     const az = Sala.azure();
@@ -461,7 +462,7 @@ function oralListen(k) {
     T.oral[k] = { tipo: ORAL[k].tipo, nivel: ORAL[k].nivel, consigna: ORAL[k].consigna, texto: r.text, segundos: r.segundos, palabras: r.nPalabras, ppm: r.ppm,
       azure: { exactitud: r.exactitud, fluidez: r.fluidez, prosodia: r.prosodia } };
     body(`<div class="rc-meta">Pregunta ${k + 1} · lo que entendí</div>
-      <div class="rc-ctx"><span>${esc(r.text || "(no reconocí voz)")}</span></div>
+      <div class="rc-ctx"><span>${esc(r.text || r.error || "(no reconocí voz)")}</span></div>
       <p class="muted small">${r.nPalabras} ${r.nPalabras === 1 ? "palabra" : "palabras"} · ${r.segundos} s de habla${r.ppm ? ` · ${r.ppm} palabras/min` : ""}</p>
       <div class="rc-actions"><button class="ghost" id="oAgain">Repetir</button><button class="primary big" id="oNext">${k + 1 < ORAL.length ? "Siguiente" : "Ver resultado"}</button></div>`);
     on("oAgain", () => oralStep(k));
@@ -1454,7 +1455,7 @@ function shadow(s) {
   h.promise.then((r) => {
     if (!document.body.contains(btn)) return;
     btn.disabled = false; btn.innerHTML = `${IC.mic}Otra vez`;
-    if (!r.text) { res.innerHTML = `<p class="small muted">No te oí. Revisa el micrófono e intenta de nuevo.</p>`; return; }
+    if (!r.text) { res.innerHTML = `<p class="small muted">${esc(r.error || "No te oí. Revisa el micrófono e intenta de nuevo.")}</p>`; return; }
     savePron("leccion", s.texto, r, LS.row.id);
     if (r.grabacion) miToma = URL.createObjectURL(r.grabacion);
     const weak = r.palabras.filter((w) => w.error !== "Insertion" && (w.error === "Omission" || (w.score != null && w.score < 60))).map((w) => w.w);
@@ -1943,6 +1944,16 @@ function passwordScreen(forced = false) {
    ===================================================================== */
 const MED_TITULO = "Medición · llamada con la reclutadora";
 const MED_DIAS = 25;          // la segunda medición se abre a los 25 días (el pase dura 30)
+const MED_MIN_DIAS = 7;       // y nunca antes de una semana: si no, no hay avance que medir
+// Quien mide su punto de partida tarde (día 6 en adelante) quedaba con la segunda medición después de que vence el pase:
+// se abre lo que llegue primero entre 25 días después de la partida y 5 días antes de que venza el pase.
+function abreFinal(partidaIso) {
+  const desde = Date.parse(partidaIso);
+  let t = desde + MED_DIAS * 864e5;
+  const vence = Date.parse(window.Sala?.pase?.()?.vence || "");
+  if (Number.isFinite(vence)) t = Math.min(t, vence - 5 * 864e5);
+  return Math.max(t, desde + MED_MIN_DIAS * 864e5);
+}
 const MED_TEST_DIAS = 3;      // un test hecho hasta 3 días antes cuenta para esa medición
 const MED_ESCENA = (nivel) => ({
   id: "medicion", medicion: true, turnosMax: 5, nivel, returnTo: { kind: "medicion" },
@@ -1975,7 +1986,7 @@ async function datosMedicion() {
     return ts.filter((x) => { const f = Date.parse(x.fin); return f <= t + 864e5 && f >= t - MED_TEST_DIAS * 864e5; }).pop() || null;
   };
   const partida = lista[0] || null;
-  const final = partida ? lista.filter((s) => Date.parse(s.inicio) - Date.parse(partida.inicio) >= MED_DIAS * 864e5).pop() || null : null;
+  const final = partida ? lista.filter((s) => Date.parse(s.inicio) >= abreFinal(partida.inicio)).pop() || null : null;
   const testReciente = ts.filter((x) => Date.now() - Date.parse(x.fin) <= MED_TEST_DIAS * 864e5).pop() || null;
   return { partida: partida && { ...partida, test: testDe(partida.inicio) }, final: final && { ...final, test: testDe(final.inicio) }, testReciente };
 }
@@ -1995,10 +2006,10 @@ async function medicionScreen() {
   let d;
   try { d = await datosMedicion(); } catch { body(err("No pude cargar tu medición (¿sin conexión?).")); return; }
   const p = d.partida && resumenMed(d.partida), f = d.final && resumenMed(d.final);
-  const abre = d.partida ? new Date(Date.parse(d.partida.inicio) + MED_DIAS * 864e5) : null;
+  const abre = d.partida ? new Date(abreFinal(d.partida.inicio)) : null;
   const pasos = `<ol class="steps-list"><li><b>Test de nivel</b> · unos 15 minutos.${d.testReciente ? ` Ya tienes uno del ${fechaCorta(d.testReciente.fin)}: lo usamos.` : ""}</li><li><b>Llamada con la reclutadora</b> · 5 preguntas, siempre las mismas. Al final ves tu evaluación.</li></ol>`;
   if (!p) {
-    body(`<p>Antes de empezar a practicar, mide de dónde partes. Al cierre de tu pase (entre el día ${MED_DIAS} y el 30) repites exactamente la misma prueba y ves cuánto avanzaste, con números.</p>
+    body(`<p>Antes de empezar a practicar, mide de dónde partes. Al cierre de tu pase (en sus últimos días) repites exactamente la misma prueba y ves cuánto avanzaste, con números.</p>
       ${pasos}
       <p class="muted small">Habla como lo harías en una entrevista real. La medición vale por el primer intento: no se repite en el momento.</p>
       <button class="primary wide" id="mGo">Medir mi punto de partida</button>`);

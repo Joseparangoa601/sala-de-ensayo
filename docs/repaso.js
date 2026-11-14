@@ -41,16 +41,47 @@ const NUM = new Map();
 "first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth".split(" ").forEach((w, i) => NUM.set(w, i + 1));
 "twenty thirty forty fifty sixty seventy eighty ninety".split(" ").forEach((w, i) => { NUM.set(w, (i + 2) * 10); NUM.set(w.replace(/y$/, "ieth"), (i + 2) * 10); });
 // Palabras normalizadas con su posición en el texto original. El teclado del iPhone escribe ’
+// «I'm» y «I am», «20%» y «20 percent», «$500» y «five hundred dollars», «OK» y «okay» cuentan igual (auditoría 14-nov:
+// antes «I'm» contra «I am» bajaba la nota y «I do not» contra «I don't» marcaba «Se repitió el error»).
+const CONTRA = { "n't": ["not"], "'m": ["am"], "'re": ["are"], "'ve": ["have"], "'ll": ["will"], "'d": ["would"], "'s": ["is"] };
+const RAIZ = { ca: "can", wo: "will", sha: "shall", ai: "am" };
+const SINON = { ok: "okay", dollar: "dollars", percentage: "percent", pct: "percent" };
+const PARTIR = { cannot: ["can", "not"], gonna: ["going", "to"], wanna: ["want", "to"] };
+function partes(raw) {
+  if (raw === "let's") return ["let", "us"];
+  const m = raw.match(/^(.+?)(n't|'m|'re|'ve|'ll|'d|'s)$/);
+  if (!m) { const r = raw.replace(/'/g, ""); return PARTIR[r] ?? [r]; }
+  const base = m[2] === "n't" ? (RAIZ[m[1]] ?? m[1]) : m[1];
+  return [base, ...CONTRA[m[2]]];
+}
 function tokens(s) {
   const out = [];
-  for (const m of s.replace(/[‘’]/g, "'").toLowerCase().matchAll(/[a-z](?:\.[a-z])+\.?|[a-z0-9']+/g)) {
-    const raw = m[0].replace(/\./g, "");
-    const ord = raw.match(/^(\d+)(?:st|nd|rd|th)$/);
-    const n = ord ? Number(ord[1]) : /^\d+$/.test(raw) ? Number(raw) : NUM.get(raw);
-    const prev = out[out.length - 1];
-    // «twenty-one» o «thirty first» son un solo número
-    if (NUM.has(raw) && n > 0 && n < 10 && prev?.n >= 20 && prev.n < 100 && prev.n % 10 === 0) { prev.n += n; prev.w = String(prev.n); continue; }
-    out.push({ w: n != null ? String(n) : raw, i: m.index, n });
+  const txt = s.replace(/[‘’]/g, "'").toLowerCase().replace(/per cent/g, "percent");
+  for (const m of txt.matchAll(/\$?(?:[a-z](?:\.[a-z])+\.?|[a-z0-9',]*[a-z0-9]'?[a-z]*)%?/g)) {
+    let raw = m[0].replace(/\./g, "");
+    const dolar = raw.startsWith("$"), pct = raw.endsWith("%");
+    raw = raw.replace(/^\$|%$/g, "");
+    if (/^\d{1,3}(,\d{3})+$/.test(raw)) raw = raw.replace(/,/g, "");   // 1,500 → 1500
+    raw = raw.replace(/,/g, "");
+    for (let w of partes(raw)) {
+      w = SINON[w] ?? w;
+      const ord = w.match(/^(\d+)(?:st|nd|rd|th)$/);
+      const n = ord ? Number(ord[1]) : /^\d+$/.test(w) ? Number(w) : NUM.get(w);
+      const prev = out[out.length - 1];
+      // «twenty-one», «five hundred», «two thousand five hundred and twenty» son un solo número
+      const pon = (t) => { t.n = t.tot + t.cur; t.w = String(t.n); };
+      if (prev?.nw) {
+        if (w === "hundred") { prev.cur = (prev.cur || 1) * 100; pon(prev); continue; }
+        if (w === "thousand") { prev.tot += (prev.cur || 1) * 1000; prev.cur = 0; pon(prev); continue; }
+        if (w === "and" && prev.cur % 100 === 0) continue;
+        const c = prev.cur;
+        if (NUM.has(w) && !ord && (c === 0 || (c % 100 === 0 && n < 100) || (c % 10 === 0 && c % 100 !== 0 && n < 10))) { prev.cur += n; pon(prev); continue; }
+      }
+      if (NUM.has(w) && !ord && !/(th|st|nd|rd)$/.test(w) && w !== "second") { out.push({ w: String(n), i: m.index, n, nw: true, tot: 0, cur: n }); continue; }
+      out.push({ w: n != null ? String(n) : w, i: m.index, n });
+    }
+    if (pct) out.push({ w: "percent", i: m.index });
+    if (dolar) out.push({ w: "dollars", i: m.index });
   }
   return out;
 }
@@ -94,8 +125,11 @@ function errorRepetido(said, c) {
   if (c.nativo && wordSim(said, c.nativo) > wordSim(said, c.correcta)) return null;
   const { sobran, faltan } = cambios(c.dijiste, c.correcta);
   if (!sobran.length && !faltan.length) return null;
-  const S = new Set(words(said));
-  const falto = faltan.filter((w) => !S.has(w)), repitio = sobran.filter((w) => S.has(w));
+  // Se cuenta cuántas veces aparece cada palabra: «that» bien usado en otra parte de la frase no es repetir el error
+  const cuenta = (arr) => arr.reduce((m, w) => m.set(w, (m.get(w) || 0) + 1), new Map());
+  const D = cuenta(words(said)), C = cuenta(words(c.correcta));
+  const falto = [...new Set(faltan)].filter((w) => (D.get(w) || 0) < (C.get(w) || 0));
+  const repitio = [...new Set(sobran)].filter((w) => (D.get(w) || 0) > (C.get(w) || 0));
   return falto.length || repitio.length ? { falto, repitio } : null;
 }
 // Sin intento que comparar no se sugiere ninguna calificación (0 no coincide con ningún botón)
@@ -133,9 +167,12 @@ function render() {
   const box = $("#reviewCard");
   if (!current) {
     const all = Datos.all();
-    const nextDue = all.map((c) => new Date(c.due)).sort((a, b) => a - b)[0];
+    // Las frases nuevas que pasan del cupo diario no están listas hoy: entran a la medianoche (antes decía «en 1 min»)
+    const dueIds = new Set(Datos.due().map((c) => c.id)), ahora = new Date();
+    const manana = new Date(ahora); manana.setHours(24, 0, 0, 0);
+    const nextDue = all.map((c) => (new Date(c.due) > ahora ? new Date(c.due) : dueIds.has(c.id) ? ahora : manana)).sort((a, b) => a - b)[0];
     const soon = nextDue && nextDue - Date.now() < 3600_000;   // las de «Otra vez» vuelven en minutos
-    const due = Datos.due().length;
+    const due = dueIds.size;
     const titulo = done ? (soon ? "Listo por ahora" : "Listo por hoy") : "No tienes frases pendientes";
     const detalle = !all.length ? "Cada corrección de tus conversaciones se guarda aquí para repasarla."
       : due ? `${due === 1 ? "Tienes 1 frase lista" : `Tienes ${due} frases listas`} para repasar otra vez.`
@@ -259,17 +296,18 @@ async function listen() {
   if (gen !== listenGen) return;   // mientras cargaba la voz, saliste o ya viste la respuesta
   voiceMsg = "";
   phase = "listening"; heard = ""; render();
+  const nMeta = words(current?.correcta || "").length;
   let oido;
   try {
     soltarToma();
-    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; }, { pron: true, grabar: true });
+    oido = await Sala.escucharUnaVez((t) => { if (gen !== listenGen) return; heard = t; const l = document.querySelector("#reviewCard .live"); if (l) l.textContent = t; }, { pron: true, grabar: true, minPalabras: nMeta > 12 ? Math.ceil(nMeta * 0.7) : 0 });
   } catch {
     if (gen === listenGen) { phase = "ask"; heard = ""; voiceMsg = "No se pudo activar la voz. Revisa el permiso del micrófono o escribe tu respuesta."; render(); }
     return;
   }
   if (gen !== listenGen) { oido.cancelar(); return; }
   rec = oido;
-  listenTimer = setTimeout(() => oido.parar(), 15000);   // tope por si no se detecta voz
+  listenTimer = setTimeout(() => oido.parar(), Math.max(15000, 6000 + nMeta * 700));   // tope por si no se detecta voz; las frases largas tienen más tiempo
   const t = await oido.promesa;
   if (gen !== listenGen) return;
   clearTimeout(listenTimer); rec = null;
@@ -330,13 +368,14 @@ function renderList() {
   const nEl = todas.filter((c) => c.origen === "manual").length;
   if (!nEl) filtro = "todas";
   const all = filtro === "elegidas" ? todas.filter((c) => c.origen === "manual") : todas;
+  const listas = new Set(Datos.due().map((c) => c.id));
   det.querySelector("summary").textContent = `Ver todo el cuaderno (${todas.length})`;
   det.querySelector(".list").innerHTML = (nEl ? `<div class="chips" role="group" aria-label="Filtrar el cuaderno">
       <button class="chip ${filtro === "todas" ? "on" : ""}" data-filtro="todas" aria-pressed="${filtro === "todas"}">Todas (${todas.length})</button>
       <button class="chip ${filtro === "elegidas" ? "on" : ""}" data-filtro="elegidas" aria-pressed="${filtro === "elegidas"}">Elegidas por ti (${nEl})</button></div>` : "") + all.map((c) => `
     <div class="li"><span class="ins">${c.origen === "manual" ? `<span class="chip-elegida">Frase elegida</span>` : ""}${esc(c.correcta)}</span>
     ${c.dijiste ? `<span class="${c.origen === "natural" ? "" : "del "}small">${esc(c.dijiste)}</span>` : ""}
-    <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}${new Date(c.due) <= Date.now() ? "lista para repasar" : `próximo repaso ${enCuanto(c.due)}`}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
+    <span class="meta">${c.escena ? `${esc(c.escena)} · ` : ""}${new Date(c.due) <= Date.now() ? (listas.has(c.id) ? "lista para repasar" : "nueva: entra mañana") : `próximo repaso ${enCuanto(c.due)}`}</span></div>`).join("") || `<p class="muted">Vacío.</p>`;
   for (const b of det.querySelectorAll("[data-filtro]")) b.onclick = () => { filtro = b.dataset.filtro; renderList(); };
 }
 let filtro = "todas";

@@ -67,7 +67,7 @@ function setState(st, caption) {
   orb.setAttribute("aria-label", noMic ? "Activar el micrófono" : ({ idle: "Empezar a hablar", listening: "Escuchando", hearing: "Te escucho", thinking: "Pensando", speaking: "Interrumpir al personaje", paused: "Continuar la conversación" }[st] || st));
   if (caption !== undefined) $("#live").textContent = caption;
   $("#pauseBtn").textContent = st === "paused" ? "Continuar" : "Pausa";
-  $("#pauseBtn").hidden = st === "idle" || noMic;   // sin sesión de voz no hay nada que pausar
+  $("#pauseBtn").hidden = st === "idle" || noMic || !!S.sinPase;   // sin sesión de voz no hay nada que pausar; sin pase no hay «Continuar»
   $("#endBtn").hidden = st === "idle";
   const conPartes = st === "listening" && turno.partes.length > 0;
   $("#listoBtn").hidden = !(st === "hearing" || conPartes);
@@ -683,16 +683,21 @@ function oidoDudoso(text, conf) {
 let unaVez = null;
 // pron: además evalúa la pronunciación por sonido (sin frase de referencia: se evalúa lo que la persona dijo)
 // grabar: guarda en memoria los mismos cuadros que van a Azure (16 kHz) para que la persona se oiga; nunca se sube
-async function escucharUnaVez(parcial, { pron = false, grabar = false } = {}) {
+// minPalabras: con frases largas (respuestas de entrevista) una pausa para recordar no cierra el intento;
+// se sigue escuchando y se juntan los tramos hasta tener ese número de palabras, tocar Listo o llegar al tope de tiempo.
+async function escucharUnaVez(parcial, { pron = false, grabar = false, minPalabras = 0 } = {}) {
   if (!vadNode) await startMic(); else vadNode.start();
   let terminar;
   const promesa = new Promise((r) => { terminar = r; });
-  const u = unaVez = { parcial, pron: pron ? [] : null, audio: grabar ? [] : null, cerrando: null, fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
+  const junta = (t) => [u.acum, t].filter((x) => x && x.trim()).join(" ").trim();
+  const u = unaVez = { acum: "", minPalabras, parcial: (t) => parcial(junta(t)), pron: pron ? [] : null, audio: grabar ? [] : null, cerrando: null,
+    fin: (t) => { if (unaVez !== u) return; unaVez = null; try { vadNode?.pause(); } catch {} terminar(t); } };
+  u.junta = junta;
   return {
     promesa,
     palabras: () => u.pron || [],
     grabacion: () => (u.audio?.length ? wavDe(u.audio) : null),
-    parar: async () => { const s = stt; const t = s ? await closeStt() : u.cerrando ? await u.cerrando : ""; if (s && u.pron) u.pron.push(...s.pron); u.fin(t); },
+    parar: async () => { const s = stt; const t = s ? await closeStt() : u.cerrando ? await u.cerrando : ""; if (s && u.pron) u.pron.push(...s.pron); u.fin(junta(t)); },
     cancelar: () => { if (unaVez === u && stt) { stt.discard = true; closeStt(); } u.fin(""); },
   };
 }
@@ -730,7 +735,11 @@ async function onSpeechEnd() {
     u.cerrando = closeStt();
     const t = await u.cerrando;
     if (u.pron) u.pron.push(...s.pron);
-    if (t) u.fin(t);                     // sin texto sigue escuchando hasta Listo o el tope de tiempo
+    if (t) {                             // sin texto sigue escuchando hasta Listo o el tope de tiempo
+      const todo = u.junta(t);
+      if (todo.split(/\s+/).length >= (u.minPalabras || 0)) u.fin(todo);
+      else { u.acum = todo; u.cerrando = null; u.parcial(""); }   // frase larga: la pausa no cierra el intento
+    }
     return;
   }
   const tEnd = now();
@@ -886,7 +895,7 @@ async function characterTurn(gen) {
     if (force && pending.trim()) { speakSentence(pending.trim(), gen); sentences++; pending = ""; }
   };
   try {
-    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.scene.nivel || S.level }, ctl.signal);   // una lección puede elegir su propio nivel
+    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.scene.nivel || S.level, tipo: tipoChat(S.scene) }, ctl.signal);   // una lección puede elegir su propio nivel
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw { code: j.error || "chat", status: j.status || r.status, motivo: j.motivo }; }
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
     while (true) {
@@ -927,12 +936,13 @@ async function characterTurn(gen) {
       rate_limited: "Vas muy rápido: espera unos segundos.",
       prueba_agotada: PRUEBA_AGOTADA,
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
-      anthropic: "El personaje no respondió. Repite tu frase.",
+      anthropic: "El personaje no respondió. Repite tu frase: esa respuesta no se descontó de tu pase.",
+      cuota_diaria: "Llegaste al máximo de hoy para esta práctica. Mañana puedes seguir.",
       no_session: "Tu sesión venció. Vuelve a entrar.",
     }[e.code] || "No hubo respuesta. Revisa tu conexión y repite tu frase.";
     notice(msg);
     logDebug("chat error " + JSON.stringify(e));
-    if (!["rate_limited", "sin_horas", "prueba_agotada"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
+    if (!["rate_limited", "sin_horas", "prueba_agotada", "cuota_diaria"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
     setState("listening", "");
   }
 }
@@ -1190,6 +1200,8 @@ async function startScene(scene) {
 async function begin() {
   if (S.state !== "idle") return;
   const scene = S.scene;
+  // Sin conversaciones no se pide micrófono ni habla el personaje (la medición y la lección no gastan)
+  if (S.sinPase || (S.pase && S.pase.segundos_usados >= S.pase.segundos_total && !tipoChat(scene))) { avisoPase(S.sinPase || "agotado"); return; }
   preparing = true;
   unlockAudio();                                  // iOS: debe ocurrir dentro del toque
   setState("thinking", "Preparando micrófono y voz…");
@@ -1230,8 +1242,10 @@ function openScene() {
   const nAud = +store.get(kAud, 0);
   if (nAud < 2) { store.set(kAud, nAud + 1); notice("Consejo: usa audífonos con micrófono (los del celular sirven). Aíslan el ruido de afuera y evitan que el micrófono capte la voz del personaje, así la app te entiende mejor.", "info"); }
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
-  if (S.pase && S.pase.segundos_usados >= S.pase.segundos_total) avisoPase("agotado");   // ya sin conversaciones: se dice antes de que hable
+  if (S.pase && S.pase.segundos_usados >= S.pase.segundos_total && !tipoChat(S.scene)) avisoPase("agotado");   // ya sin conversaciones: se dice antes de que hable (la medición y la lección no gastan)
 }
+// La medición y la conversación final de una lección no gastan conversaciones del pase (el servidor las cuenta aparte).
+const tipoChat = (sc) => (sc?.medicion ? "medicion" : sc?.returnTo?.kind === "lesson" ? "leccion" : undefined);
 const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
 // Pase agotado o vencido: aviso fijo con el camino para seguir, no un error técnico
 // La conversación se detiene: sin micrófono ni caja de texto, y la tarjeta queda abajo, donde la persona mira.
@@ -1251,7 +1265,7 @@ function avisoPase(motivo) {
   if (!f) { f = document.createElement("div"); f.id = "paseFin"; f.className = "pase-fin"; f.setAttribute("role", "status"); $("#talk .stage").after(f); }
   const titulo = S.sinPase === "vencido" ? "Tu pase de 30 días ya venció." : S.sinPase === "inactivo" ? "Tu pase ya no está activo." : "Se acabaron las conversaciones de tu pase.";
   f.innerHTML = `<b>${titulo}</b><span>No se cobró nada más. ${S.sinPase === "agotado" ? "Lo que practicaste quedó en tu repaso: puedes seguir repasándolo con voz hasta que venza tu pase." : "Lo que practicaste quedó guardado en tu repaso."}</span>` +
-    (COMPRA_URL ? `<a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>` : "") +
+    (COMPRA_URL ? `<a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>${mismoCorreo()}` : "") +
     `<button class="ghost wide" id="paseFinBack">Volver al inicio</button>`;
   f.hidden = false;
   $("#paseFinBack").onclick = () => $("#backBtn").click();
@@ -1282,11 +1296,14 @@ const COMPRA_URL = (() => {
   let sid = ""; try { sid = sessionStorage.getItem("espera:sid") || ""; } catch {}
   return `${base}&src=${encodeURIComponent(src)}${sid ? `&sck=${encodeURIComponent(sid.slice(0, 40))}` : ""}`;
 })();
+// En Hotmart hay que pagar con el correo de la cuenta: con otro correo se crea una cuenta nueva y este pase no suma nada
+const mismoCorreo = () => { const e = S.session?.user?.email; return e ? `<span class="muted small">Paga con el mismo correo de tu cuenta, <b>${esc(e)}</b>, para que se sume a este pase.</span>` : ""; };
 const INTERNO = (() => { try { return localStorage.getItem("sala:interno") === "1"; } catch { return false; } })();
 const COMPRA_TXT = enBF() ? "Black Friday: USD 15 por 30 días (regular USD 27)" : "Empieza hoy · USD 27 por 30 días";
 // El pase se gasta por respuesta (80 s fijos cada una, en la base); se muestra en conversaciones de 15 respuestas
 const SEG_RESPUESTA = 80, RESP_CONVERSACION = 15, SEG_CONVERSACION = SEG_RESPUESTA * RESP_CONVERSACION;
-const conversaciones = (seg) => Math.floor(seg / SEG_CONVERSACION);
+// Redondeado: con una sola respuesta usada decía «te quedan 14 de 15» (auditoría 14-nov)
+const conversaciones = (seg) => Math.round(seg / SEG_CONVERSACION);
 const durVozConv = (seg) => { const n = conversaciones(seg); return n >= 1 ? `${n} ${n === 1 ? "conversación" : "conversaciones"}` : `${Math.floor(seg / SEG_RESPUESTA)} respuestas`; };
 const AVISO_DIAS = 3, AVISO_SEG = 2 * SEG_CONVERSACION;   // avisar antes de que se acabe: 3 días o 2 conversaciones
 // Días de calendario hasta la fecha (0 = hoy, 1 = mañana): «vence en 2 días» debe coincidir con la fecha que se muestra
@@ -1300,7 +1317,7 @@ function estadoPase(p, ahora = Date.now()) {
   const fin = new Date(p.vence).toLocaleDateString("es", { day: "numeric", month: "long" });
   if (p.activo === false) return { fin: true, corto: "Tu pase ya no está activo", hoy: "Tu pase ya no está activo. No se cobró nada más." };
   if (ahora >= vence) return { fin: true, vencido: true, corto: `Terminó el ${fin}`, hoy: `Tu pase terminó el ${fin}. No se cobró nada más.` };
-  if (seg < SEG_RESPUESTA) return { fin: true, agotado: true, corto: "Usaste todas tus conversaciones con voz", hoy: `Usaste todas las conversaciones con voz de tu pase. Repasar, las lecciones y los videos siguen hasta el ${fin}. No se cobró nada más.` };
+  if (seg < SEG_RESPUESTA) return { fin: true, agotado: true, corto: "Usaste todas tus conversaciones con voz", hoy: `Usaste las 15 conversaciones de tu pase. El repaso sigue con voz, igual que las lecciones, los videos, tus historias y la medición, hasta el ${fin}. No se cobró nada más.` };
   const corto = `Te quedan ${durVozConv(seg)} · hasta el ${fin}`;
   if (dias <= AVISO_DIAS) return { alerta: true, corto, hoy: `Tu pase vence ${cuandoVence(dias)} y te quedan ${durVozConv(seg)}. No se renueva solo.` };
   if (seg <= AVISO_SEG) return { alerta: true, corto, hoy: `Te quedan ${durVozConv(seg)} en tu pase (hasta el ${fin}).` };
@@ -1330,6 +1347,7 @@ async function paintPase() {
     $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus conversaciones con voz`);
     $("#paseVence").textContent = e.fin ? e.hoy : `Vence el ${new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "long" })} (${cuandoVence(diasHasta(data.vence))}).`;
     $("#paseComprar").hidden = !COMPRA_URL; if (COMPRA_URL) $("#paseComprar").href = COMPRA_URL;
+    $("#paseCorreo").innerHTML = COMPRA_URL ? mismoCorreo() : "";
     $("#paseMas").hidden = !!COMPRA_URL;
     const hoy = $("#paseHoy");
     hoy.textContent = e.hoy;
@@ -1412,6 +1430,7 @@ function pauseSession(msg) {
   setState("paused", msg || "");
 }
 async function resumeSession() {
+  if (S.sinPase && S.scene) { avisoPase(S.sinPase); return; }   // «Continuar» reabría el micrófono con el pase agotado
   // Sesión escrita (sin micrófono): no hay audio que revisar
   const reconstruir = micLost || (!!vadNode && audioDanado());
   if (reconstruir) reiniciarAudio();
@@ -1947,6 +1966,7 @@ const INFORME_ACTIVO = true;   // encendido el 14-nov: la clave de Brevo ya est�
 function informeHTML(ev) {
   if (!INFORME_ACTIVO) return "";
   const d = S.infDraft || {};
+  if (d.enviado && d.repetido) return `<div class="inf-form ok" role="status"><b>Ya enviamos el informe de esta prueba.</b><span class="muted small">Se envía uno por prueba, a la primera dirección que escribiste. Si no lo ves, mira en spam o promociones.</span></div>`;
   if (d.enviado) return `<div class="inf-form ok" role="status"><b>Listo: revisa tu correo.</b><span class="muted small">Te enviamos tu informe a ${esc(d.email)}. Si no llega en unos minutos, mira en spam o promociones.</span></div>`;
   return `<form class="inf-form" id="infForm" novalidate>
     <h2>¿A dónde te enviamos tu informe completo?</h2>
@@ -1984,12 +2004,12 @@ function informeForm(scene, ev, list) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || r.status);
       if (j.enviado === false) throw new Error("no_enviado");   // quedó guardado; al tocar otra vez se reintenta
-      S.infDraft = { email, enviado: true };
+      S.infDraft = { email, enviado: true, repetido: !!j.repetido };
       f.outerHTML = informeHTML(ev);
     } catch (err) {
       window.Fallos?.registrar("funcion", "espera-informe", String(err?.message || err));
       btn.disabled = false; btn.textContent = "Enviarme mi informe";
-      msg.textContent = String(err?.message) === "rate_limited" ? "Ya pediste varios informes. Espera un momento e intenta de nuevo." : String(err?.message) === "no_enviado" ? "No pudimos enviarlo en este momento. Toca otra vez en un minuto." : "No se pudo enviar. Revisa tu conexión e intenta de nuevo.";
+      msg.textContent = String(err?.message) === "rate_limited" ? "Ya pediste varios informes. Espera un momento e intenta de nuevo." : String(err?.message) === "no_enviado" ? "No pudimos enviarlo en este momento. Toca otra vez en un minuto." : String(err?.message) === "informe" ? "Tu informe aún no está listo: la evaluación necesita al menos 3 respuestas. Ensaya otra vez y vuelve a pedirlo." : "No se pudo enviar. Revisa tu conexión e intenta de nuevo.";
     }
   };
 }
@@ -2056,6 +2076,7 @@ function paintNivel() {
 }
 window.Sala = {
   ojoClave, limiteMsg, deslizable, cerrarDeslizadas, tactil,
+  pase: () => S.pase,
   // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente
   olvidarEscena(id, titulos) {
     delete S.voices[id]; store.set("voices", S.voices);

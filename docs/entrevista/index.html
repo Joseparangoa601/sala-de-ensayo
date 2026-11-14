@@ -327,7 +327,7 @@
   <h2 id="precio">El precio</h2>
   <div class="card pilot">
     <p><span data-reg="&lt;b&gt;30 días de ensayo con voz · USD 27.&lt;/b&gt; Hotmart te muestra el valor en tu moneda (en Colombia, unos COP 94.500 al cambio del día)."><b>30 días de ensayo con voz.</b> Precio regular USD 27. <b>Black Friday: USD 15 hasta el 27 de noviembre.</b> Hotmart te muestra el valor en tu moneda (en Colombia, unos COP 52.500 en Black Friday y COP 94.500 a precio regular, al cambio del día).</span> Pago único, sin renovación automática. Garantía de 7 días: si no te sirve, te devolvemos el dinero.</p>
-    <p><b>Qué incluye:</b> hasta 15 conversaciones con voz con los personajes (unas 15 respuestas cada una; cada respuesta cuenta igual, tardes lo que tardes en pensarla). Repasar tus errores, las lecciones, los videos de YouTube y el test de nivel no las gastan. Si usas todas antes del día 30, lo demás sigue funcionando hasta el día 30.</p>
+    <p><b>Qué incluye:</b> hasta 15 conversaciones con voz con los personajes (unas 15 respuestas cada una; cada respuesta cuenta igual, tardes lo que tardes en pensarla). Repasar tus errores, las lecciones, los videos de YouTube, el test de nivel, practicar tus historias y medir tu avance no las gastan. Si usas todas antes del día 30, el repaso sigue con voz, igual que todo lo demás, hasta el día 30.</p>
     <p>Funciona en el navegador del celular y se instala como app en tu pantalla de inicio.</p>
     <button class="cta" data-cta="pilot" data-reg="Empieza hoy · USD 27&lt;small&gt;Pago seguro en Hotmart&lt;/small&gt;">Black Friday: USD 15 <s>USD 27</s><small>Hasta el 27 de noviembre · pago seguro en Hotmart</small></button>
   </div>
@@ -335,6 +335,7 @@
   <h2>Preguntas</h2>
   <details><summary>¿Qué nivel de inglés necesito?</summary><p>Desde un nivel intermedio básico (A2–B1). El entrevistador ajusta su vocabulario a tu nivel, tú eliges qué tan rápido te habla y puedes hacer el test al empezar.</p></details>
   <details><summary>¿Cómo recibo el acceso?</summary><p>Pagas en Hotmart y en unos minutos te llega un correo de Sala de Ensayo para crear tu contraseña. Con eso entras a la app desde el celular. Si no lo ves, revisa la carpeta de spam o escribe a contacto@lead10x.com.co.</p></details>
+  <details><summary>¿Y si uso las 15 conversaciones antes del día 30?</summary><p>Se detienen las conversaciones con los personajes y el simulacro, pero lo demás sigue hasta el día 30: el repaso de tus errores con voz, las lecciones, los videos, el test de nivel, la práctica de tus historias y la medición de tu avance. Si quieres más conversaciones, compras otro pase y se suman 15 conversaciones y 30 días.</p></details>
   <details><summary>¿Qué pasa al terminar los 30 días?</summary><p>Tu pase termina y la práctica se detiene. No te cobramos nada más: es un pago único, sin renovación automática. Tu cuenta y tu historial no se borran. La app te avisa 3 días antes y cuando te quedan 2 conversaciones; si quieres seguir, compras otro pase y se suman 30 días y 15 conversaciones a lo que te queda.</p></details>
   <details><summary>¿Qué más puedo hacer, además de ensayar la entrevista?</summary><p>Aprender con cualquier video de YouTube en inglés (pegas el enlace y la app arma una lección), repasar tus propios errores en tu cuaderno, medir tu nivel con el test, crear tus propias escenas de conversación y medir tu avance del día 1 al día 30.</p></details>
   <details><summary>¿Sirve para trabajos remotos o en otro país?</summary><p>Sí. Con el modo entrevista pegas la oferta de cualquier cargo, presencial o remoto, de cualquier sector.</p></details>
@@ -352,7 +353,7 @@
 
 <div class="cookies" id="cookies" role="dialog" aria-label="Cookies" hidden>
   <p>¿Aceptas cookies de publicidad de Meta para medir los anuncios? <a href="privacidad.html">Más info</a></p>
-  <div><button type="button" class="ghostbtn" id="cookiesNo">Rechazar</button><button type="button" class="okbtn" id="cookiesSi">Aceptar</button></div>
+  <div><button type="button" class="ghostbtn" id="cookiesNo">Solo necesarias</button><button type="button" class="okbtn" id="cookiesSi">Aceptar</button></div>
 </div>
 <div class="sticky" id="sticky" aria-hidden="true"><button class="cta" data-cta="sticky" tabindex="-1" data-reg="Empieza hoy · USD 27">Black Friday · USD 15 <s>USD 27</s></button></div>
 
@@ -436,8 +437,12 @@
     if (decision === "si") cargarPixel(); else if (!decision) caja.hidden = false;
   }
   // Quien llega de un anuncio no conoce la app: la prueba gratis va primero y la compra queda como segunda opción.
-  // (14-nov: ~40 visitas de anuncios, ninguna empezó la prueba con la compra arriba). Las visitas directas no cambian.
-  if (/[?&](utm_source|utm_campaign|utm_content|fbclid|gclid|ttclid)=/.test(location.search)) {
+  // (14-nov: ~40 visitas de anuncios, ninguna empezó la prueba con la compra arriba). Las visitas directas no cambian,
+  // ni las que vienen de los correos (brevo, informe): esas personas ya hicieron la prueba y van a la compra.
+  const qs = new URLSearchParams(location.search);
+  const deAnuncio = /[?&](fbclid|gclid|ttclid)=/.test(location.search) || /^(pago|paid|cpc|ads?)$/i.test(qs.get("utm_medium") || "")
+    || /^(facebook|instagram|meta|fb|ig|google|tiktok)$/i.test(qs.get("utm_source") || "");
+  if (deAnuncio) {
     const probar = document.querySelector(".hero a.probar"), comprar = document.querySelector('[data-cta="hero"]');
     if (probar && comprar) {
       probar.className = "cta probar-cta";

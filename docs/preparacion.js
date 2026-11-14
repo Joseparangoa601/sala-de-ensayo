@@ -96,7 +96,7 @@ async function load() {
   ]);
   if (a.error) throw a.error;
   // Solo los intentos de este expediente: los de una oferta anterior tenían otras preguntas (se conservan, no se mezclan)
-  P.row = a.data; P.intentos = (b.data ?? []).filter((x) => !P.row?.iniciado || x.expediente_iniciado === P.row.iniciado); P.sims = c.data ?? [];
+  P.row = a.data; P.intentos = (b.data ?? []).filter((x) => !P.row?.iniciado || x.expediente_iniciado === P.row.iniciado); P.sims = (c.data ?? []).filter((x) => !P.row?.iniciado || x.inicio >= P.row.iniciado);   // simulacros de esta carpeta, no de otra oferta
 }
 
 async function open() {
@@ -345,7 +345,7 @@ function practice(q, opts = {}) {
     if (g !== run) return;
     pron = r; b.disabled = false; b.textContent = "Grabar otra vez";
     if (r.text) ta.value = r.text;
-    else $("#pErr").innerHTML = E()._err("No escuché nada. Revisa el permiso del micrófono o escribe tu respuesta.");
+    else $("#pErr").innerHTML = E()._err(r.error || "No escuché nada. Revisa el permiso del micrófono o escribe tu respuesta.");
   });
   on("pGo", async () => {
     const texto = $("#pAns").value.trim();

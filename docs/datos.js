@@ -127,7 +127,7 @@ const Datos = {
     const now = new Date();
     const row = {
       id: uuid(), origen: correcta ? "correccion" : "natural", escena: escena || null, dijiste: dijiste || null,   // sin corrección: estaba bien, solo hay forma más natural
-      correcta: target, nativo: correcta && nativo ? nativo : null, tip: tip || null, contexto: contexto || null, leccion_id,
+      correcta: target, nativo: correcta && nativo && norm(nativo) !== norm(target) ? nativo : null,   // si es la misma frase, «Nativo» salía repetido tip: tip || null, contexto: contexto || null, leccion_id,
       ...fromFsrs(F.createEmptyCard(now)), archivada: false, creado: now.toISOString(),
     };
     cards.push(row);
@@ -150,7 +150,8 @@ const Datos = {
     return res.card;
   },
   // Próximo intervalo de cada botón, para mostrarlo («Bien · 3 d»)
-  preview(card) {
+  preview(card0) {
+    const card = live(card0);   // tras un sync las tarjetas se reemplazan: la copia vieja daba intervalos de antes de «Otra vez»
     const now = new Date();
     previewAt = { id: card.id, now };
     const out = {};
