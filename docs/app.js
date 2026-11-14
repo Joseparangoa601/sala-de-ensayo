@@ -1249,8 +1249,8 @@ function estadoPase(p, ahora = Date.now()) {
   const vence = Date.parse(p.vence), dias = diasHasta(p.vence, ahora);
   const fin = new Date(p.vence).toLocaleDateString("es", { day: "numeric", month: "long" });
   if (p.activo === false) return { fin: true, corto: "Tu pase ya no está activo", hoy: "Tu pase ya no está activo. No se cobró nada más." };
-  if (ahora >= vence) return { fin: true, corto: `Terminó el ${fin}`, hoy: `Tu pase terminó el ${fin}. No se cobró nada más.` };
-  if (seg < SEG_RESPUESTA) return { fin: true, corto: "Usaste todas tus conversaciones", hoy: "Usaste todas las conversaciones de tu pase. No se cobró nada más." };
+  if (ahora >= vence) return { fin: true, vencido: true, corto: `Terminó el ${fin}`, hoy: `Tu pase terminó el ${fin}. No se cobró nada más.` };
+  if (seg < SEG_RESPUESTA) return { fin: true, agotado: true, corto: "Usaste todas tus conversaciones con voz", hoy: `Usaste todas las conversaciones con voz de tu pase. Repasar, las lecciones y los videos siguen hasta el ${fin}. No se cobró nada más.` };
   const corto = `Te quedan ${durVozConv(seg)} · hasta el ${fin}`;
   if (dias <= AVISO_DIAS) return { alerta: true, corto, hoy: `Tu pase vence ${cuandoVence(dias)} y te quedan ${durVozConv(seg)}. No se renueva solo.` };
   if (seg <= AVISO_SEG) return { alerta: true, corto, hoy: `Te quedan ${durVozConv(seg)} en tu pase (hasta el ${fin}).` };
@@ -1271,9 +1271,13 @@ async function paintPase() {
     const e = estadoPase(data), seg = Math.max(0, data.segundos_total - data.segundos_usados);
     const usado = Math.min(1, data.segundos_usados / data.segundos_total);
     $("#paseNow").textContent = e.corto;
-    $("#paseHoras").innerHTML = `<b>${durVozConv(seg)}</b> de ${conversaciones(data.segundos_total)} en total`;
+    // Una sola unidad a la vista: conversaciones con voz (las respuestas solo cuando queda menos de una conversación)
+    const total = conversaciones(data.segundos_total);
+    $("#paseHoras").innerHTML = e.vencido ? (seg >= SEG_RESPUESTA ? `Te quedaron <b>${durVozConv(seg)}</b> con voz sin usar.` : `Usaste toda tu práctica con voz.`)
+      : e.agotado ? `Usaste las <b>${total} conversaciones</b> con voz de tu pase.`
+      : `Te quedan <b>${durVozConv(seg)}</b> con voz, de ${total}.`;
     $("#paseBarra i").style.width = Math.round(usado * 100) + "%";
-    $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus conversaciones`);
+    $("#paseBarra").setAttribute("aria-label", `Usaste el ${Math.round(usado * 100)} % de tus conversaciones con voz`);
     $("#paseVence").textContent = e.fin ? e.hoy : `Vence el ${new Date(data.vence).toLocaleDateString("es", { day: "numeric", month: "long" })} (${cuandoVence(diasHasta(data.vence))}).`;
     $("#paseComprar").hidden = !COMPRA_URL; if (COMPRA_URL) $("#paseComprar").href = COMPRA_URL;
     $("#paseMas").hidden = !!COMPRA_URL;
@@ -1570,6 +1574,15 @@ function renderToday() {
   const due = Datos.due().length, scene = sceneOfDay();
   const did = TODAY.practiced || store.get("practicaHoy", "") === dayKey();
   const items = [];
+  // Primer día de quien compró: tres pasos en orden hasta completarlos (se marcan al tocarlos)
+  if (document.body.classList.contains("con-pase")) {
+    const pd = [
+      { a: "pd-tut", t: "Mira cómo se usa · 2 min", s: "Videos cortos: cómo responder y leer tu corrección", el: "#tutBtn" },
+      { a: "pd-medir", t: "Mide tu punto de partida · 20 min", s: "Test de nivel y una llamada de 5 preguntas", el: "#medirBtn" },
+      { a: "pd-prep", t: "Pon la fecha de tu entrevista y arma tu plan", s: "Tu hoja de vida, la oferta y un plan día a día hasta la entrevista", el: "#prepBtn" },
+    ];
+    if (!pd.every((x) => store.get(x.a, false))) for (const x of pd) items.push({ ...x, done: !!store.get(x.a, false) });
+  }
   // Unos 25 s por frase (estimado: decirla, ver la respuesta y calificar)
   if (due) items.push({ a: "review", t: `Repasa ${due} ${due === 1 ? "frase" : "frases"} · ${Math.max(1, Math.round(due * 25 / 60))} min`, s: "Tus errores, antes de que se olviden" });
   if (scene && !document.body.classList.contains("con-pase")) items.push({ a: "scene", done: did, t: did ? "Ya conversaste hoy" : `Conversa: ${scene.title}`, s: did ? `Si quieres más: ${scene.title}` : `Con ${scene.name}` });
@@ -1578,6 +1591,8 @@ function renderToday() {
   el.innerHTML = items.map((i, n) => `<button class="ti ${i.done ? "done" : ""} ${i === next ? "next" : ""}" data-a="${i.a}"><span class="tick" aria-hidden="true">${i.done ? "✓" : n + 1}</span><span class="ti-t"><b>${esc(i.t)}</b><small>${esc(i.s)}</small></span>${i === next ? `<svg class="go" aria-hidden="true"><use href="#i-chev"/></svg>` : ""}</button>`).join("")
     + (!next && items.length ? `<p class="today-ok">Lo de hoy está hecho.</p>` : "");
   for (const b of el.querySelectorAll(".ti")) b.onclick = () => {
+    const pd = items.find((i) => i.a === b.dataset.a && i.el);
+    if (pd) { store.set(pd.a, true); $(pd.el)?.click(); return; }
     if (b.dataset.a === "review") Repaso.open();
     else if (b.dataset.a === "scene") startScene(sceneOfDay());
     else Estudio.open(TODAY.lesson.id);

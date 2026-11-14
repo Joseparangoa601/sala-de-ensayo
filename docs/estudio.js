@@ -322,7 +322,19 @@ const ORAL = [
 ];
 
 let T = null;
-const testBack = () => { if (window.confirm("¿Salir del test? Se pierden las respuestas que llevas.")) home(); };
+// Confirmación dentro de la página: el cuadro del sistema (confirm) congela la pestaña en algunos navegadores
+const testBack = () => {
+  let bar = document.getElementById("salirTest");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "salirTest"; bar.className = "notice"; bar.dataset.kind = "warn";
+    bar.innerHTML = `<b>¿Salir del test?</b> Se pierden las respuestas que llevas.<div class="row" style="margin-top:8px;gap:8px;display:flex;flex-wrap:wrap"><button class="primary" id="stSi">Salir</button><button class="ghost" id="stNo">Seguir con el test</button></div>`;
+    $("#studyBody").prepend(bar);
+    on("stSi", () => { bar.remove(); home(); });
+    on("stNo", () => bar.remove());
+  }
+  $("#studyWrap").scrollTop = 0;
+};
 async function bank() {
   if (T?.bank) return T.bank;
   const r = await fetch("banco.json", { cache: "no-cache" }).catch(() => null) || await fetch("banco.json");
@@ -1986,7 +1998,7 @@ async function medicionScreen() {
   const abre = d.partida ? new Date(Date.parse(d.partida.inicio) + MED_DIAS * 864e5) : null;
   const pasos = `<ol class="steps-list"><li><b>Test de nivel</b> · unos 15 minutos.${d.testReciente ? ` Ya tienes uno del ${fechaCorta(d.testReciente.fin)}: lo usamos.` : ""}</li><li><b>Llamada con la reclutadora</b> · 5 preguntas, siempre las mismas. Al final ves tu evaluación.</li></ol>`;
   if (!p) {
-    body(`<p>Antes de empezar a practicar, mide de dónde partes. En ${MED_DIAS} días repites exactamente la misma prueba y ves cuánto avanzaste, con números.</p>
+    body(`<p>Antes de empezar a practicar, mide de dónde partes. Al cierre de tu pase (entre el día ${MED_DIAS} y el 30) repites exactamente la misma prueba y ves cuánto avanzaste, con números.</p>
       ${pasos}
       <p class="muted small">Habla como lo harías en una entrevista real. La medición vale por el primer intento: no se repite en el momento.</p>
       <button class="primary wide" id="mGo">Medir mi punto de partida</button>`);

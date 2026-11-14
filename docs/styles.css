@@ -457,6 +457,8 @@ a.wide{display:flex;align-items:center;justify-content:center;text-align:center;
 
 /* Tu pase: detalle en Tú y aviso en Hoy */
 .pase-det p{margin:0}
+.pase-reglas ul{margin:6px 0 0;padding-left:1.1em}
+.pase-reglas li{margin:4px 0;line-height:1.45}
 .pase-barra{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
 .pase-barra i{display:block;height:100%;width:0;background:var(--action);border-radius:4px}
 .pase-hoy{background:none;border:0;padding:0;text-align:left;font:inherit;color:var(--muted);font-size:.85rem;align-self:flex-start;cursor:pointer}
