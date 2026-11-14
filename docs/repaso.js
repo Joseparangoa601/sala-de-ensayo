@@ -18,6 +18,7 @@ let toma = null, tomaAudio = null;
 function pararToma() { try { tomaAudio?.pause(); } catch {} tomaAudio = null; }
 function soltarToma() { pararToma(); if (toma) { try { URL.revokeObjectURL(toma); } catch {} toma = null; } }
 const yoBtn = () => (toma ? `<button class="replay" id="rcYo" aria-label="Escuchar cómo lo dijiste">${IC.play}Cómo lo dijiste</button>` : "");   // pronunciación por sonido del último intento hablado y su recuadro
+let distinta = false;   // lo dicho no se parece a la frase de la tarjeta
 let repite = null;   // si el intento volvió a decir el error que corrige la tarjeta: { falto, repitio }
 
 function fmtWhen(d) {
@@ -184,6 +185,7 @@ function render() {
     h += `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span> <em class="sim">${palabrasDichas()}</em>${toma ? `<div class="char-acts">${yoBtn()}</div>` : ""}</div>
       <div class="proof"><div class="row"><b>Te faltó</b><span class="ins">${esc(faltante)}</span></div></div>${sonidos}
       <p class="rc-q" role="status">Bien el comienzo. Ahora dila completa.</p>
+      ${voiceMsg ? `<div class="notice" role="alert">${esc(voiceMsg)}</div>` : ""}
       <div class="rc-actions">
         <button class="primary big" id="rcSpeak">${IC.mic}Decirla completa</button>
         <button class="ghost" id="rcShow">Mostrar respuesta</button>
@@ -192,6 +194,7 @@ function render() {
   } else {
     const s = repite ? 1 : suggest(sim);   // repetir el error no es «Bien», aunque casi todas las palabras coincidan
     h += heard ? `<div class="rc-ctx"><b>Ahora dijiste</b><span>${esc(heard)}</span>${sim != null ? ` <em class="sim">${palabrasDichas()}</em>` : ""}${toma ? `<div class="char-acts">${yoBtn()}</div>` : ""}</div>${sonidos}` : "";
+    if (distinta) h += `<div class="notice" role="status"><b>Eso no se parece a la frase de esta tarjeta.</b> Escúchala abajo y toca «Otra vez» para decirla.</div>`;
     if (repite) h += `<div class="notice" data-kind="warn" role="status"><b>Se repitió el error.</b> ${[
       repite.repitio.length ? `Volviste a decir «${esc(repite.repitio.join(" "))}».` : "",
       repite.falto.length ? `Faltó «${esc(repite.falto.join(" "))}».` : "",
@@ -217,7 +220,7 @@ function wire() {
   on("rcSpeak", listen);
   on("rcNext", () => next());
   on("rcShow", () => reveal(""));
-  on("rcStop", () => { if (rec) rec.parar(); });
+  on("rcStop", () => { if (rec) rec.parar(); else { stopRec(); phase = "ask"; render(); } });   // aún abría el micrófono: «Listo» cancela
   on("rcListen", () => leerTarjeta(current));
   for (const b of document.querySelectorAll("[data-oir]")) b.onclick = () => { pararToma(); Sala.stopAudio(); Sala.speakEN(b.dataset.oir, { rate: b.dataset.rate }).catch(() => {}); };
   on("rcYo", () => { if (!toma) return; Sala.stopAudio(); pararToma(); tomaAudio = new Audio(toma); tomaAudio.play().catch(() => {}); });
@@ -241,8 +244,16 @@ function otraVez() {
 
 async function listen() {
   const gen = ++listenGen;
-  try { await Sala.ensureVoice(); } catch {
-    if (gen === listenGen) { voiceMsg = "No se pudo conectar con la voz. Escribe tu respuesta."; render(); }
+  Sala.stopAudio(); pararToma();   // la voz de la app sonando no debe entrar como tu intento
+  try { await Sala.ensureVoice(); } catch (e) {
+    if (gen === listenGen) {
+      // Sin voz se vuelve a preguntar con el aviso a la vista: antes el intento anterior se quedaba en pantalla y parecía trabado
+      phase = "ask"; heard = ""; soltarToma();
+      voiceMsg = e?.code === "sin_horas"
+        ? (e.motivo === "inactivo" ? "Tu pase ya no está activo" : "Tu pase de 30 días ya venció") + ", así que la voz del repaso se apagó. Puedes seguir escribiendo tus respuestas."
+        : "No se pudo conectar con la voz. Escribe tu respuesta o intenta de nuevo en un momento.";
+      render();
+    }
     return;
   }
   if (gen !== listenGen) return;   // mientras cargaba la voz, saliste o ya viste la respuesta
@@ -263,6 +274,8 @@ async function listen() {
   if (gen !== listenGen) return;
   clearTimeout(listenTimer); rec = null;
   pron = oido.palabras();
+  // No te oyó (micrófono en silencio, «Listo» antes de hablar, voz caída): se dice, no se salta a la respuesta
+  if (!(t || heard).trim()) { phase = "ask"; heard = ""; voiceMsg = "No te escuché. Toca Decirlo y habla cerca del micrófono, o escribe tu respuesta."; render(); return; }
   const g = (t || heard).trim() ? oido.grabacion?.() : null;
   if (g) toma = URL.createObjectURL(g);
   reveal((t || heard).trim(), true);
@@ -295,14 +308,17 @@ function acierto() {
 function reveal(said, hablado = false) {
   listenGen++;   // una escucha que aún estaba cargando no debe abrir el micrófono después
   heard = said;
-  if (!hablado) pron = [];   // escrito o «Mostrar respuesta»: no hay sonidos que evaluar
+  if (!hablado) { pron = []; soltarToma(); }   // escrito o «Mostrar respuesta»: ni sonidos que evaluar ni grabación de antes
   sonidos = window.Estudio?._sonidos?.(pron) || "";
   sim = said ? wordSim(said, current.correcta) : null;
   if (said && current.nativo) sim = Math.max(sim, wordSim(said, current.nativo));
-  repite = errorRepetido(said, current);
+  // Solo se busca el error repetido si lo dicho se parece a la frase: con otra frase marcaba «Se repitió el error» sin razón
+  const parecida = sim != null && sim >= 0.5;
+  repite = parecida ? errorRepetido(said, current) : null;
   if (sim != null && sim >= 0.95 && !repite) return acierto();
   const falta = said ? faltaFinal(said, current.nativo) || faltaFinal(said, current.correcta) : null;
   if (falta) { faltante = falta; ayudada = true; phase = "parcial"; render(); return; }   // no se equivocó: no hay «Mejor di» que leerle
+  distinta = !!said && !parecida;
   phase = "answer";
   render();
   leerTarjeta(current).catch(() => {});

@@ -977,7 +977,7 @@ async function correct(text, prev, bubble, conf) {
     if (target) {
       const b = document.createElement("button");
       b.type = "button"; b.className = "replay"; b.innerHTML = `${IC.mic}Dilo otra vez`;
-      b.onclick = () => askRetry(target, card);
+      b.dataset.retry = "1"; b.onclick = () => askRetry(target, card);
       acts.appendChild(b);
     }
     if (c.ok && c.natural && window.Datos) {
@@ -1001,6 +1001,7 @@ function retryBox(card, html) {
   requestAnimationFrame(() => box.scrollIntoView({ block: "nearest", behavior: "smooth" }));   // la tarjeta puede no ser la última del chat
 }
 function askRetry(target, card) {
+  if (S.sinPase) { avisoPase(S.sinPase); return; }   // sin pase no se reabre el micrófono por la puerta de «Dilo otra vez»
   unlockAudio();
   if (player.playing?.coach) { stopSpeaking(); setState("listening", ""); }   // si aún sonaba la corrección, tu turno de repetir va primero
   if (S.state === "paused") resumeSession();
@@ -1242,12 +1243,14 @@ function avisoPase(motivo) {
   n.hidden = false;
   if (!S.scene) return;
   try { pauseSession(""); } catch {}
+  S.retry = null;   // «Dilo otra vez» quedaba armado sobre una frase vieja
+  for (const b of document.querySelectorAll("#log [data-retry], #log [data-again]")) b.disabled = true;
   setState("paused", "Tu pase no tiene conversaciones");
   $("#typeForm").hidden = true;
   let f = $("#paseFin");
   if (!f) { f = document.createElement("div"); f.id = "paseFin"; f.className = "pase-fin"; f.setAttribute("role", "status"); $("#talk .stage").after(f); }
   const titulo = S.sinPase === "vencido" ? "Tu pase de 30 días ya venció." : S.sinPase === "inactivo" ? "Tu pase ya no está activo." : "Se acabaron las conversaciones de tu pase.";
-  f.innerHTML = `<b>${titulo}</b><span>No se cobró nada más. Lo que practicaste quedó guardado en tu repaso.</span>` +
+  f.innerHTML = `<b>${titulo}</b><span>No se cobró nada más. ${S.sinPase === "agotado" ? "Lo que practicaste quedó en tu repaso: puedes seguir repasándolo con voz hasta que venza tu pase." : "Lo que practicaste quedó guardado en tu repaso."}</span>` +
     (COMPRA_URL ? `<a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>` : "") +
     `<button class="ghost wide" id="paseFinBack">Volver al inicio</button>`;
   f.hidden = false;
