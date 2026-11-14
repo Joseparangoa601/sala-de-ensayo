@@ -84,6 +84,8 @@ function fitViewport() {
   if (window.scrollY) window.scrollTo(0, 0);
 }
 function notice(msg, kind = "warn") {
+  // Con el pase agotado o vencido, ese aviso manda: ningún aviso informativo lo tapa
+  if (S.sinPase && msg && kind === "info") return;
   const n = $("#notice");
   n.textContent = msg || "";
   n.dataset.kind = kind;
@@ -333,7 +335,10 @@ function speakItem(item) {
     sintetizar(item).then((ab) => ctx.decodeAudioData(ab.slice(0))),
     new Promise((_, rej) => setTimeout(() => rej({ code: "tts", detail: "sin respuesta en 8 s" }), 8000)),
   ])
-    .catch((e) => { logDebug("TTS Azure falló → voz del sistema: " + (e.detail || e.code)); return { fallback: true }; });
+    .catch((e) => {
+      if (e?.code === "sin_horas") { avisoPase(e.motivo); return { sinPase: true }; }   // sin pase no hay voz: no se finge con la del teléfono
+      logDebug("TTS Azure falló → voz del sistema: " + (e.detail || e.code)); return { fallback: true };
+    });
   player.queue.push(item);
   if (!player.playing) playNext();
 }
@@ -344,6 +349,7 @@ async function playNext() {
   const buf = await item.ready;
   if (item.gen !== S.gen) { player.playing = null; item.onEnd?.(); return playNext(); }   // quien la espera no debe quedarse colgado
   // Probar una voz con la voz del sistema engañaría: se avisa que no cargó
+  if (buf && buf.sinPase) { item.onEnd?.(); return playNext(); }
   if (item.preview && buf && buf.fallback) { notice("No pude cargar esa voz. Intenta de nuevo o elige otra."); item.onEnd?.(); return playNext(); }
   if (S.turnMetrics && !S.turnMetrics.firstAudio && !item.coach) { S.turnMetrics.firstAudio = now(); finishMetrics(); }
   if (!item.preview && S.state !== "speaking" && S.state !== "paused") setState("speaking");   // oír algo en pausa no reanuda la conversación
@@ -890,7 +896,8 @@ async function characterTurn(gen) {
     if (!player.playing && !player.queue.length) { setState("listening", ""); maybeCoach(); }
   } catch (e) {
     if (e?.name === "AbortError" || gen !== S.gen) return;
-    const msg = e.code === "sin_horas" ? paseMsg(e.motivo) : {
+    if (e.code === "sin_horas") { avisoPase(e.motivo); setState("listening", ""); return; }
+    const msg = {
       rate_limited: "Vas muy rápido: espera unos segundos.",
       prueba_agotada: PRUEBA_AGOTADA,
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
@@ -1185,7 +1192,7 @@ async function begin() {
 // La escena queda abierta igual si empiezas hablando o escribiendo: cuenta la sesión y el personaje dice su primera frase.
 function openScene() {
   S.usage = { haikuIn: 0, haikuOut: 0, haikuCacheRead: 0, sonnetIn: 0, sonnetOut: 0, turns: 0, sttSeconds: 0, ttsChars: 0 };
-  S.cefrVotes = []; S.confs = [];
+  S.cefrVotes = []; S.confs = []; S.sinPase = null;
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
@@ -1193,6 +1200,14 @@ function openScene() {
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
 }
 const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
+// Pase agotado o vencido: aviso fijo con el camino para seguir, no un error técnico
+function avisoPase(motivo) {
+  S.sinPase = motivo || "agotado";
+  const n = $("#notice");
+  n.dataset.kind = "warn";
+  n.innerHTML = `<b>${esc(paseMsg(motivo))}</b>` + (COMPRA_URL ? ` <a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>` : "");
+  n.hidden = false;
+}
 // Respuestas del servidor por pase o por tope diario, en palabras de la persona (null si no es ninguno de los dos)
 function limiteMsg(j) {
   if (j?.error === "sin_horas" || j?.code === "sin_horas") return paseMsg(j.motivo);
@@ -1293,7 +1308,7 @@ function ojoClave(raiz) {
 }
 function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
-  if (e?.code === "sin_horas") notice(paseMsg(e.motivo));
+  if (e?.code === "sin_horas") avisoPase(e.motivo);
   else if (e?.code === "prueba_agotada") notice(PRUEBA_AGOTADA);
   else if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
   else notice("La voz no está disponible por ahora. Puedes escribir abajo.");
