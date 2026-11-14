@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bienvenida a Sala de Ensayo</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='8' fill='%230FB0D2'/%3E%3Cpath d='M9 20.5 L15 11 L18.5 16 L23 9.5' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='23' cy='9.5' r='2.3' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap">
+<!-- Página a la que Hotmart lleva al comprador después de pagar. Un solo objetivo: que entre a la app. -->
+<style>
+  :root{--bg:#F4F6F6;--surface:#fff;--ink:#141414;--muted:#54595f;--line:#E1E7E7;--accent:#08748A;--action:#F2801A;--action-ink:#141414;--soft:#E3F5FA;--ok:#2f7a4f}
+  @media (prefers-color-scheme:dark){:root{--bg:#0E1216;--surface:#181D22;--ink:#EFF3F3;--muted:#a2adb0;--line:#243036;--accent:#0FB0D2;--action:#F2801A;--action-ink:#141414;--soft:#16303A;--ok:#6cc08f}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:640px;margin:0 auto;padding:0 18px 48px}
+  header{padding:28px 0 4px}
+  .brand{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.8rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .l10{display:inline-flex;align-items:center;gap:7px;color:var(--ink);text-decoration:none}
+  .l10 svg{width:26px;height:26px;color:#0FB0D2;flex:none}
+  .l10 b{font-family:"Anton",Bahnschrift,"Arial Narrow",sans-serif;font-weight:400;font-size:19px;letter-spacing:.04em}
+  .brand .sep{width:1px;height:18px;background:var(--line)}
+  .ok{display:inline-flex;align-items:center;gap:8px;margin:22px 0 0;color:var(--ok);font-weight:700}
+  .ok svg{width:22px;height:22px}
+  h1{font-family:"Anton",Bahnschrift,"Arial Narrow",sans-serif;font-weight:400;text-transform:uppercase;letter-spacing:.012em;font-size:clamp(2rem,7vw,2.7rem);line-height:1.12;margin:.25em 0 .3em;text-wrap:balance}
+  .lead{font-size:1.1rem;color:var(--muted);margin:0 0 1.2em}
+  .cta{display:block;width:100%;border-radius:12px;background:var(--action);color:var(--action-ink);font-weight:700;font-size:1.1rem;padding:16px;text-align:center;text-decoration:none}
+  .cta small{display:block;font-weight:500;opacity:.88;font-size:.85rem}
+  h2{font-size:1.25rem;line-height:1.25;margin:1.8em 0 .5em}
+  ol.pasos{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:p}
+  ol.pasos li{counter-increment:p;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 58px;position:relative}
+  ol.pasos li::before{content:counter(p);position:absolute;left:16px;top:14px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;display:grid;place-items:center;font-size:.95rem}
+  ol.pasos b{display:block}
+  .card{background:var(--soft);border-radius:14px;padding:14px 16px;margin:12px 0}
+  .card p{margin:.3em 0 0}
+  ul{margin:.4em 0 0;padding-left:1.2em} li{margin:.3em 0}
+  .note{font-size:.88rem;color:var(--muted)}
+  a{color:var(--accent)}
+  .cta,.cta:visited{color:var(--action-ink)}
+  footer{margin-top:2.4em;border-top:1px solid var(--line);padding-top:14px;font-size:.85rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mark" viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="8" fill="currentColor"/><path d="M9 20.5 L15 11 L18.5 16 L23 9.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="9.5" r="2.3" fill="#fff"/></symbol></svg>
+<div class="wrap">
+  <header>
+    <div class="brand"><a class="l10" href="https://lead10x.com.co/" target="_blank" rel="noopener" aria-label="lead10x"><svg><use href="#mark"/></svg><b>LEAD10X</b></a><span class="sep"></span><span>Sala de Ensayo</span></div>
+    <p class="ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>Tu pago quedó aprobado</p>
+    <h1>Ya tienes tu Sala de Ensayo. Entra así:</h1>
+    <p class="lead">Son 3 pasos y toman 2 minutos. Tu pase dura 30 días desde hoy.</p>
+  </header>
+
+  <ol class="pasos">
+    <li><b>Abre tu correo.</b>En unos minutos te llega un correo de <b style="display:inline">Sala de Ensayo</b> al mismo correo con el que pagaste. Si no lo ves, revisa el correo no deseado o promociones.</li>
+    <li><b>Toca el enlace del correo y crea tu contraseña.</b>Hazlo desde el celular si vas a practicar ahí: el micrófono funciona mejor.</li>
+    <li><b>Entra a la app con tu correo y tu contraseña.</b>Usa el botón de abajo. Guarda esta dirección: <b style="display:inline">sala.lead10x.com.co</b></li>
+  </ol>
+
+  <p style="margin:18px 0 0"><a class="cta" href="https://sala.lead10x.com.co/">Entrar a Sala de Ensayo<small>sala.lead10x.com.co</small></a></p>
+
+  <div class="card">
+    <b>¿Ya tenías cuenta en Sala de Ensayo?</b>
+    <p>Entonces no necesitas crear contraseña: entra con la que ya tienes. Tu pase nuevo ya está activo en tu cuenta. Si no la recuerdas, en la pantalla de entrada escribe tu correo y toca <b>«Olvidé mi contraseña»</b>.</p>
+  </div>
+
+  <h2>Tu primer día, en 30 minutos</h2>
+  <ol class="pasos">
+    <li><b>Mira cómo se usa (2 minutos).</b>Pestaña <b style="display:inline">Tú → Cómo se usa</b>: videos cortos que te muestran cómo responder en voz alta y cómo leer tu corrección.</li>
+    <li><b>Mide tu punto de partida.</b>Pestaña <b style="display:inline">Tú → Mide tu avance</b>: un test de nivel y una llamada de 5 preguntas. El día 30 la repites y ves cuánto avanzaste.</li>
+    <li><b>Arma tu entrevista.</b>En <b style="display:inline">Hoy → Modo entrevista</b> sube tu hoja de vida y pega la oferta, o escribe el cargo que buscas. Desde ahí practicas tus 5 historias con un puntaje de 0 a 100.</li>
+  </ol>
+
+  <h2>Tenla como app en el celular</h2>
+  <ul>
+    <li><b>iPhone:</b> abre sala.lead10x.com.co en Safari, toca Compartir y luego «Agregar a inicio».</li>
+    <li><b>Android:</b> ábrela en Chrome, toca el menú ⋮ y luego «Agregar a la pantalla principal».</li>
+  </ul>
+
+  <h2>¿Algo no funciona?</h2>
+  <p>Escríbenos a <b>contacto@lead10x.com.co</b> con el correo de tu compra y te ayudamos el mismo día. Tienes garantía de 7 días: si no te sirve, te devolvemos el dinero.</p>
+
+  <footer>Sala de Ensayo es un producto de lead10x. <a href="/entrevista/privacidad.html">Privacidad</a></footer>
+</div>
+</body>
+</html>
