@@ -60,7 +60,7 @@ const RONDAS = [
   { id: "r4", titulo: "Ronda 4 · La coach en español", frase: "Muy bien. Solo un detalle: cuando hablas de tu experiencia, en inglés se dice «I have worked», no «I am working».",
     ops: { neural: "c1_az_dalia.mp3", neuralmulti: "c1_az_daliamulti.mp3", el: "c1_el.mp3" }, coach: true },
   { id: "r5", titulo: "Ronda 5 · Más despacio, para nivel básico", frase: "So, tell me a little about yourself and why you're interested in this role.",
-    ops: { neural: "f1lento_az_neural.mp3", hd: ["f1_az_hd.mp3", 0.8], el: "f1lento_el.mp3" } },
+    ops: { neural: "f1lento_az_neural.mp3", hd: ["f1_az_hd.mp3", 0.8], el: ["f1_el.mp3", 0.8] } },
 ];
 const LETRAS = "ABCD";
 const mezclar = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -107,7 +107,7 @@ document.getElementById("enviar").addEventListener("click", async () => {
   }
   if (faltan) { est.textContent = `Te faltan ${faltan} preguntas por responder.`; return; }
   const ua = navigator.userAgent;
-  const datos = { v: 1, resp, nivel: document.getElementById("nivel").value, audifonos: val("audif") ?? "",
+  const datos = { v: 2, resp, nivel: document.getElementById("nivel").value, audifonos: val("audif") ?? "",
     equipo: /iPhone|iPad/.test(ua) ? "iphone" : /Android/.test(ua) ? "android" : "computador",
     opciones: Object.fromEntries(RONDAS.map((r) => [r.id, r.orden.map((o) => o.k)])) };
   const C = window.SALA_CONFIG;
