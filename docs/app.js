@@ -1895,7 +1895,7 @@ function terminarPrueba() {
 // Informe por correo: la persona deja su correo a cambio de su informe completo y la guía de las 12 preguntas.
 // Lo que se ve en pantalla no cambia. La casilla va sin marcar (Ley 1581): sin ella no se envía nada.
 const AUTORIZACION = "Autorizo a José P. Arango, responsable de Sala de Ensayo (lead10x), a usar mi correo para enviarme este informe y comunicaciones comerciales sobre Sala de Ensayo, según la política de privacidad. Puedo darme de baja cuando quiera.";
-const INFORME_ACTIVO = false;   // se enciende cuando la clave de Brevo esté en los secretos de Supabase (si no, el correo no saldría)
+const INFORME_ACTIVO = true;   // encendido el 14-nov: la clave de Brevo ya está en los secretos de Supabase
 function informeHTML(ev) {
   if (!INFORME_ACTIVO) return "";
   const d = S.infDraft || {};
