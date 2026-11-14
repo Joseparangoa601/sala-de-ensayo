@@ -46,9 +46,9 @@
 <div class="wrap">
   <header>
     <div class="brand"><a class="l10" href="https://lead10x.com.co/" target="_blank" rel="noopener" aria-label="lead10x"><svg><use href="#mark"/></svg><b>LEAD10X</b></a><span class="sep"></span><span>Sala de Ensayo</span></div>
-    <p class="ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>Tu pago quedó aprobado</p>
-    <h1>Ya tienes tu Sala de Ensayo. Entra así:</h1>
-    <p class="lead">Son 3 pasos y toman 2 minutos. Tu pase dura 30 días desde hoy.</p>
+    <p class="ok" id="estado"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>Tu pago quedó aprobado</p>
+    <h1 id="titulo">Ya tienes tu Sala de Ensayo. Entra así:</h1>
+    <p class="lead" id="bajada">Son 3 pasos y toman 2 minutos. Tu pase dura 30 días desde hoy.</p>
   </header>
 
   <ol class="pasos">
@@ -82,5 +82,14 @@
 
   <footer>Sala de Ensayo es un producto de lead10x. <a href="/entrevista/privacidad.html">Privacidad</a></footer>
 </div>
+<script>
+  // Hotmart manda aquí también los pagos que aún no se confirman (?estado=espera): el correo llega cuando se aprueban.
+  if (new URLSearchParams(location.search).get("estado") === "espera") {
+    document.getElementById("estado").lastChild.textContent = "Tu pago está en confirmación";
+    document.getElementById("estado").style.color = "var(--muted)";
+    document.getElementById("titulo").textContent = "Tu pago se está confirmando. Esto sigue:";
+    document.getElementById("bajada").textContent = "Algunos medios de pago tardan en confirmarse. Apenas tu pago se apruebe te llega el correo del paso 1; no tienes que volver a pagar. Tu pase dura 30 días desde ese momento.";
+  }
+</script>
 </body>
 </html>
