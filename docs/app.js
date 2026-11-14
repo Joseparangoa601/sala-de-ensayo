@@ -1051,7 +1051,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
       <div class="kpis"><div><small>Turnos</small><b>${ses.turnos}</b></div><div><small>Palabras tuyas</small><b>${ses.palabras_jose}</b></div><div><small>Correcciones</small><b>${list.length}</b></div></div>
       ${window.Estudio?._sonidos?.(pronRecap) || ""}
       ${last.length ? `<div class="rc-ctx"><b>Frase para mañana</b><span class="en">${esc(last[0].better)}</span></div>
-        <h2>${scene.prep ? "Correcciones de tu inglés en el simulacro" : "Lo que más conviene repasar"}</h2>
+        <h2>${scene.prep ? "Correcciones de tu inglés en el simulacro" : S.prueba ? `Tus ${last.length === 1 ? "error más importante" : `${last.length} errores más importantes`}` : "Lo que más conviene repasar"}</h2>
         <div class="list">${last.map((c) => { const d = wordDiff(c.original, c.better); return `<div class="li"><span class="said">${d.said}</span><span class="fixed">${d.fixed}</span>${c.tip ? `<span class="meta">${esc(c.tip)}</span>` : ""}</div>`; }).join("")}</div>
         <p class="muted small">${S.prueba ? "Con tu acceso, estas frases quedan en tu cuaderno de errores y vuelven en tu repaso hasta que te salgan solas." : "Estas frases ya están en tu cuaderno de errores."}</p>`
       : list.failed ? `<p class="muted small">No pude revisar todas tus frases en esta práctica.</p>`
@@ -1942,14 +1942,15 @@ function informeForm(scene, ev, list) {
     }
   };
 }
+// El precio va justo después de los errores: es el momento en que la persona ve lo que le falta
 function pruebaCierreHTML(ev) {
-  return `${informeHTML(ev)}<div class="prueba-cierre">
-    <h2>Esto fue una sola escena</h2>
-    <p class="muted">Con tu acceso ensayas todas las etapas de la entrevista, preparas tus respuestas con lo que de verdad hiciste y tus errores vuelven en el repaso hasta que te salgan solos.</p>
+  return `<div class="prueba-cierre">
+    <h2>Corrige estos errores antes de tu entrevista</h2>
+    <p class="muted">Esto fue una sola escena. Con tu acceso ensayas 30 días con tu hoja de vida y la oferta real, todas las etapas de la entrevista, y estos errores vuelven en tu repaso hasta que te salgan solos.</p>
     <a class="primary wide" id="rcReservar" href="${COMPRA_URL}">${COMPRA_TXT}</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
-  </div>`;
+  </div>${informeHTML(ev)}`;
 }
 function salirDePrueba() {
   try { sessionStorage.removeItem("sala:prueba"); } catch {}
