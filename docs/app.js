@@ -1197,6 +1197,9 @@ function openScene() {
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
   addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
+  // Consejo de audífonos en las 2 primeras conversaciones: sin ellos el micrófono capta el ruido y la voz del personaje
+  const nAud = +store.get("tipAudif", 0);
+  if (nAud < 2) { store.set("tipAudif", nAud + 1); notice("Consejo: usa audífonos con micrófono (los del celular sirven). Aíslan el ruido de afuera y evitan que el micrófono capte la voz del personaje, así la app te entiende mejor.", "info"); }
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
 }
 const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
