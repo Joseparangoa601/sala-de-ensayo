@@ -330,13 +330,17 @@ function speakSentence(text, gen) {
   speakItem({ text, gen, ssml: ssml(text, voiceFor(S.scene)) });
 }
 function speakItem(item) {
-  // Tope de 8 s: una síntesis colgada no debe dejar la cola bloqueada para siempre
+  // Tope de 8 s (15 s la corrección, que es larga y suena después del personaje): una síntesis colgada no debe bloquear la cola
+  const tope = item.coach ? 15000 : 8000;
   item.ready = Promise.race([
     sintetizar(item).then((ab) => ctx.decodeAudioData(ab.slice(0))),
-    new Promise((_, rej) => setTimeout(() => rej({ code: "tts", detail: "sin respuesta en 8 s" }), 8000)),
+    new Promise((_, rej) => setTimeout(() => rej({ code: "tts", detail: `sin respuesta en ${tope / 1000} s` }), tope)),
   ])
     .catch((e) => {
       if (e?.code === "sin_horas") { avisoPase(e.motivo); return { sinPase: true }; }   // sin pase no hay voz: no se finge con la del teléfono
+      window.Fallos?.registrar("voz", item.coach ? "coach" : "personaje", e?.code || "desconocido", e?.detail || e?.status);
+      // La corrección ya está escrita: mejor sin voz que con la del teléfono (salía robótica y con acento de España)
+      if (item.coach) { logDebug("TTS coach falló: " + (e.detail || e.code)); return { sinVoz: true }; }
       logDebug("TTS Azure falló → voz del sistema: " + (e.detail || e.code)); return { fallback: true };
     });
   player.queue.push(item);
@@ -350,6 +354,10 @@ async function playNext() {
   if (item.gen !== S.gen) { player.playing = null; item.onEnd?.(); return playNext(); }   // quien la espera no debe quedarse colgado
   // Probar una voz con la voz del sistema engañaría: se avisa que no cargó
   if (buf && buf.sinPase) { item.onEnd?.(); return playNext(); }
+  if (buf && buf.sinVoz) {
+    if (!S.avisoVozCoach) { S.avisoVozCoach = true; notice("No pude cargar la voz de la corrección. La tienes escrita arriba.", "info"); }
+    item.onEnd?.(); return playNext();
+  }
   if (item.preview && buf && buf.fallback) { notice("No pude cargar esa voz. Intenta de nuevo o elige otra."); item.onEnd?.(); return playNext(); }
   if (S.turnMetrics && !S.turnMetrics.firstAudio && !item.coach) { S.turnMetrics.firstAudio = now(); finishMetrics(); }
   if (!item.preview && S.state !== "speaking" && S.state !== "paused") setState("speaking");   // oír algo en pausa no reanuda la conversación
@@ -835,6 +843,7 @@ function similarity(a, b) {
 
 /* ---------------- un turno ---------------- */
 async function userSaid(text, m = {}) {
+  if (S.sinPase) { avisoPase(S.sinPase); return; }   // sin pase no se envía nada: se queda «Pensando» para siempre
   stopSpeaking();                         // invalida cualquier respuesta previa
   turno.partes = [];                      // si escribes, lo escrito reemplaza lo dicho a medias
   notice("");
@@ -1163,7 +1172,7 @@ const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófon
 async function startScene(scene) {
   stopSpeaking();                         // también sube S.gen y corta lo que siguiera sonando
   coachQ.length = 0;
-  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.pronTurno = []; S.pronSesion = []; S.pruebaFin = false; S.pruebaCerrando = false; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false;
+  S.scene = scene; S.history = []; S.retry = null; S.corrections = []; S.pronTurno = []; S.pronSesion = []; S.pruebaFin = false; S.pruebaCerrando = false; S.recapRender = null; S.lastCoachText = ""; S.avisoVozSistema = false; S.sinPase = null; quitarFinPase();
   turno.partes = []; turno.cerrando = false; turno.segmento = null;
   $("#log").innerHTML = briefHTML(scene);
   $("#sceneName").textContent = scene.title;
@@ -1209,7 +1218,7 @@ async function begin() {
 // La escena queda abierta igual si empiezas hablando o escribiendo: cuenta la sesión y el personaje dice su primera frase.
 function openScene() {
   S.usage = { haikuIn: 0, haikuOut: 0, haikuCacheRead: 0, sonnetIn: 0, sonnetOut: 0, turns: 0, sttSeconds: 0, ttsChars: 0 };
-  S.cefrVotes = []; S.confs = []; S.sinPase = null;
+  S.cefrVotes = []; S.confs = []; S.sinPase = null; S.avisoVozCoach = false; quitarFinPase();
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
   S.history.push({ role: "assistant", content: S.scene.open });
@@ -1220,16 +1229,32 @@ function openScene() {
   const nAud = +store.get(kAud, 0);
   if (nAud < 2) { store.set(kAud, nAud + 1); notice("Consejo: usa audífonos con micrófono (los del celular sirven). Aíslan el ruido de afuera y evitan que el micrófono capte la voz del personaje, así la app te entiende mejor.", "info"); }
   if (S.pase && S.pase.segundos_total - S.pase.segundos_usados <= AVISO_SEG && S.pase.segundos_usados < S.pase.segundos_total) notice(`Te quedan ${durVozConv(S.pase.segundos_total - S.pase.segundos_usados)} en tu pase.`);
+  if (S.pase && S.pase.segundos_usados >= S.pase.segundos_total) avisoPase("agotado");   // ya sin conversaciones: se dice antes de que hable
 }
 const paseMsg = (motivo) => (motivo === "vencido" ? "Tu pase de 30 días ya venció." : motivo === "inactivo" ? "Tu pase ya no está activo." : "Ya usaste todas las conversaciones de tu pase.") + " No se cobró nada más. En Tú → Tu pase ves cómo seguir.";
 // Pase agotado o vencido: aviso fijo con el camino para seguir, no un error técnico
+// La conversación se detiene: sin micrófono ni caja de texto, y la tarjeta queda abajo, donde la persona mira.
 function avisoPase(motivo) {
   S.sinPase = motivo || "agotado";
   const n = $("#notice");
   n.dataset.kind = "warn";
-  n.innerHTML = `<b>${esc(paseMsg(motivo))}</b>` + (COMPRA_URL ? ` <a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>` : "");
+  n.innerHTML = `<b>${esc(paseMsg(S.sinPase))}</b>`;
   n.hidden = false;
+  if (!S.scene) return;
+  try { pauseSession(""); } catch {}
+  setState("paused", "Tu pase no tiene conversaciones");
+  $("#typeForm").hidden = true;
+  let f = $("#paseFin");
+  if (!f) { f = document.createElement("div"); f.id = "paseFin"; f.className = "pase-fin"; f.setAttribute("role", "status"); $("#talk .stage").after(f); }
+  const titulo = S.sinPase === "vencido" ? "Tu pase de 30 días ya venció." : S.sinPase === "inactivo" ? "Tu pase ya no está activo." : "Se acabaron las conversaciones de tu pase.";
+  f.innerHTML = `<b>${titulo}</b><span>No se cobró nada más. Lo que practicaste quedó guardado en tu repaso.</span>` +
+    (COMPRA_URL ? `<a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · suma 15 conversaciones y 30 días</a>` : "") +
+    `<button class="ghost wide" id="paseFinBack">Volver al inicio</button>`;
+  f.hidden = false;
+  $("#paseFinBack").onclick = () => $("#backBtn").click();
+  f.scrollIntoView?.({ block: "nearest" });
 }
+function quitarFinPase() { $("#paseFin")?.remove(); $("#typeForm").hidden = false; }
 // Respuestas del servidor por pase o por tope diario, en palabras de la persona (null si no es ninguno de los dos)
 function limiteMsg(j) {
   if (j?.error === "sin_horas" || j?.code === "sin_horas") return paseMsg(j.motivo);
@@ -1714,6 +1739,7 @@ function wire() {
     if (error) $("#loginErr").textContent = error.status >= 400 && error.status < 500 && error.status !== 429 ? "No pude entrar: revisa el correo y la contraseña. Si compraste tu pase, entra con el correo que usaste para pagar en Hotmart." : "No pude conectar. Revisa tu internet e intenta de nuevo.";
   });
   $("#orb").onclick = () => {
+    if (S.sinPase && S.scene) { avisoPase(S.sinPase); return; }
     if (S.state === "idle") begin();
     else if (S.state === "listening" && !vadNode) enableMic();
     else if (S.state === "paused") resumeSession();
