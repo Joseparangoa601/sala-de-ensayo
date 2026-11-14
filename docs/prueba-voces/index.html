@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de voces · Sala de Ensayo</title>
+<meta name="robots" content="noindex">
+<!-- Prueba a ciegas de voces (nov-2026): Azure Neural vs Azure HD vs ElevenLabs. Orden aleatorio por persona; se guarda solo la elección. -->
+<style>
+  :root{--bg:#F4F6F6;--surface:#fff;--ink:#141414;--muted:#54595f;--line:#E1E7E7;--accent:#08748A;--action:#F2801A;--soft:#E3F5FA}
+  @media (prefers-color-scheme:dark){:root{--bg:#0E1216;--surface:#181D22;--ink:#EFF3F3;--muted:#a2adb0;--line:#243036;--accent:#0FB0D2;--soft:#16303A}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:620px;margin:0 auto;padding:24px 18px 48px}
+  h1{font-size:1.6rem;line-height:1.2;margin:.2em 0 .4em}
+  h2{font-size:1.15rem;margin:0 0 .3em}
+  .muted{color:var(--muted)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+  .frase{background:var(--soft);border-radius:10px;padding:8px 12px;font-style:italic;margin:6px 0 12px}
+  .op{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .op button.play{flex:none;width:118px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;padding:10px;font-size:1rem}
+  .preg{margin:12px 0 4px;font-weight:700}
+  .opts{display:flex;gap:8px;flex-wrap:wrap}
+  .opts label{border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+  .opts input{accent-color:var(--action)}
+  select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);width:100%}
+  .enviar{display:block;width:100%;border:0;border-radius:12px;background:var(--action);color:#141414;font-weight:700;font-size:1.1rem;padding:15px;margin-top:18px}
+  .ok{color:#2f7a4f;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="muted" style="margin:0;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.8rem">Sala de Ensayo · prueba de voces</p>
+  <h1>¿Cuál voz suena más a una persona?</h1>
+  <p class="muted">Son 5 rondas cortas (unos 4 minutos). En cada una escuchas la misma frase con voces distintas, en orden al azar. Usa audífonos si puedes. No hay respuestas correctas.</p>
+
+  <div class="card">
+    <h2>Antes de empezar</h2>
+    <p class="preg">Tu nivel de inglés</p>
+    <select id="nivel"><option value="">Elige…</option><option>Básico (A2)</option><option>Intermedio (B1)</option><option>Intermedio alto (B2)</option><option>Avanzado (C1)</option><option>No sé</option></select>
+    <p class="preg">¿Estás escuchando con audífonos?</p>
+    <div class="opts"><label><input type="radio" name="audif" value="si"> Sí</label><label><input type="radio" name="audif" value="no"> No</label></div>
+  </div>
+
+  <div id="rondas"></div>
+  <button class="enviar" id="enviar">Enviar mis respuestas</button>
+  <p id="estado" class="muted" aria-live="polite"></p>
+</div>
+<script src="/config.js"></script>
+<script>
+const A = "audio/";
+// opción → archivo (y velocidad de reproducción). Las de ElevenLabs aparecen solo si su archivo existe.
+const RONDAS = [
+  { id: "r1", titulo: "Ronda 1 · El entrevistador abre", frase: "So, tell me a little about yourself and why you're interested in this role.",
+    ops: { neural: "f1_az_neural.mp3", hd: "f1_az_hd.mp3", el: "f1_el.mp3" } },
+  { id: "r2", titulo: "Ronda 2 · La entrevistadora repregunta", frase: "Hmm, that's interesting. Can you walk me through a specific example?",
+    ops: { neural: "f2_az_neural.mp3", hd: "f2_az_hd.mp3", el: "f2_el.mp3" } },
+  { id: "r3", titulo: "Ronda 3 · Pregunta difícil", frase: "We're looking for someone who can handle pressure. How do you deal with tight deadlines?",
+    ops: { neural: "f3_az_neural.mp3", hd: "f3_az_hd.mp3", el: "f3_el.mp3" } },
+  { id: "r4", titulo: "Ronda 4 · La coach en español", frase: "Muy bien. Solo un detalle: cuando hablas de tu experiencia, en inglés se dice «I have worked», no «I am working».",
+    ops: { neural: "c1_az_dalia.mp3", neuralmulti: "c1_az_daliamulti.mp3", el: "c1_el.mp3" }, coach: true },
+  { id: "r5", titulo: "Ronda 5 · Más despacio, para nivel básico", frase: "So, tell me a little about yourself and why you're interested in this role.",
+    ops: { neural: "f1lento_az_neural.mp3", hd: ["f1_az_hd.mp3", 0.8], el: "f1lento_el.mp3" } },
+];
+const LETRAS = "ABCD";
+const mezclar = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const existe = async (f) => { try { return (await fetch(A + f, { method: "HEAD" })).ok; } catch { return false; } };
+let reproduciendo = null;
+
+async function armar() {
+  const cont = document.getElementById("rondas");
+  for (const r of RONDAS) {
+    const ops = [];
+    for (const [k, v] of Object.entries(r.ops)) {
+      const [f, vel] = Array.isArray(v) ? v : [v, 1];
+      if (await existe(f)) ops.push({ k, f, vel });
+    }
+    r.orden = mezclar(ops);
+    const pregs = r.coach
+      ? [["natural", "¿Cuál suena más natural?"], ["neutro", "¿Cuál suena a español neutro, sin acento de España?"]]
+      : [["persona", "¿Cuál suena más a una persona real?"], ["entiendo", "¿Cuál entiendes mejor?"]];
+    const div = document.createElement("div"); div.className = "card";
+    div.innerHTML = `<h2>${r.titulo}</h2><div class="frase">${r.frase}</div>` +
+      r.orden.map((o, i) => `<div class="op"><button class="play" data-r="${r.id}" data-i="${i}">▶ Voz ${LETRAS[i]}</button></div>`).join("") +
+      pregs.map(([pk, pt]) => `<p class="preg">${pt}</p><div class="opts">` +
+        r.orden.map((o, i) => `<label><input type="radio" name="${r.id}_${pk}" value="${i}"> ${LETRAS[i]}</label>`).join("") +
+        `<label><input type="radio" name="${r.id}_${pk}" value="igual"> Igual</label></div>`).join("");
+    cont.append(div);
+  }
+  cont.addEventListener("click", (e) => {
+    const b = e.target.closest("button.play"); if (!b) return;
+    const r = RONDAS.find((x) => x.id === b.dataset.r), o = r.orden[+b.dataset.i];
+    if (reproduciendo) reproduciendo.pause();
+    const au = new Audio(A + o.f); au.preservesPitch = true; au.playbackRate = o.vel; au.play(); reproduciendo = au;
+  });
+}
+
+document.getElementById("enviar").addEventListener("click", async () => {
+  const est = document.getElementById("estado");
+  const val = (n) => document.querySelector(`input[name="${n}"]:checked`)?.value;
+  const resp = {};
+  let faltan = 0;
+  for (const r of RONDAS) for (const pk of (r.coach ? ["natural", "neutro"] : ["persona", "entiendo"])) {
+    const v = val(`${r.id}_${pk}`);
+    if (v === undefined) { faltan++; continue; }
+    resp[`${r.id}_${pk}`] = v === "igual" ? "igual" : r.orden[+v].k;   // se guarda el proveedor, no la letra
+  }
+  if (faltan) { est.textContent = `Te faltan ${faltan} preguntas por responder.`; return; }
+  const ua = navigator.userAgent;
+  const datos = { v: 1, resp, nivel: document.getElementById("nivel").value, audifonos: val("audif") ?? "",
+    equipo: /iPhone|iPad/.test(ua) ? "iphone" : /Android/.test(ua) ? "android" : "computador",
+    opciones: Object.fromEntries(RONDAS.map((r) => [r.id, r.orden.map((o) => o.k)])) };
+  const C = window.SALA_CONFIG;
+  est.textContent = "Enviando…";
+  try {
+    const r = await fetch(`${C.SUPABASE_URL}/rest/v1/votos_voces`, { method: "POST",
+      headers: { apikey: C.SUPABASE_ANON_KEY, Authorization: `Bearer ${C.SUPABASE_ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ datos }) });
+    if (!r.ok) throw new Error(r.status);
+    est.innerHTML = '<span class="ok">¡Gracias! Tus respuestas quedaron guardadas.</span>';
+    document.getElementById("enviar").disabled = true;
+  } catch (e) { est.textContent = "No se pudo enviar. Intenta de nuevo en un momento."; }
+});
+armar();
+</script>
+</body>
+</html>
