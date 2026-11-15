@@ -446,10 +446,21 @@
     const probar = document.querySelector(".hero a.probar"), comprar = document.querySelector('[data-cta="hero"]');
     if (probar && comprar) {
       probar.className = "cta probar-cta";
-      probar.innerHTML = "Pruébala gratis: una entrevista de 5 respuestas<small>Sin cuenta y sin tarjeta · al final ves tu evaluación</small>";
+      probar.innerHTML = "Empezar mi entrevista gratis<small>Unos 5 minutos · sin cuenta y sin tarjeta</small>";
       comprar.classList.add("sec");
       comprar.parentNode.insertBefore(probar, comprar);
     }
+    // 15-nov: con la prueba primero, 20 visitas de anuncios y ninguna la empezó. El título hablaba del producto pagado,
+    // no de lo que prometía el anuncio. Ahora la primera pantalla repite la promesa de cada anuncio y dice qué es la prueba.
+    const PROMESA = {
+      miedo: "¿Te trabas cuando te dicen «Tell me about yourself»? Ensáyalo ahora, en voz alta.",
+      puntaje: "Mira cuánto puntúa tu respuesta en inglés, y cómo sube cuando le pones un dato.",
+      prueba: "Una entrevista en inglés de 5 respuestas. Gratis y sin cuenta.",
+    };
+    const h1 = document.querySelector(".hero h1"), lead = document.querySelector(".hero .lead");
+    if (h1) h1.textContent = PROMESA[qs.get("utm_content")] || PROMESA.prueba;
+    if (lead) lead.textContent = "Una reclutadora te hace 5 preguntas de entrevista en inglés. Respondes con tu voz o escribiendo, y al final ves tu evaluación y tus errores corregidos.";
+    document.querySelector(".hero")?.classList.add("de-anuncio");
   }
   document.querySelector("a.probar, a.probar-cta")?.addEventListener("click", () => fbqEvento("Lead", { content_name: "prueba" }));
   document.querySelectorAll("[data-cta]").forEach((b) => b.onclick = () => {
