@@ -895,7 +895,7 @@ async function characterTurn(gen) {
     if (force && pending.trim()) { speakSentence(pending.trim(), gen); sentences++; pending = ""; }
   };
   try {
-    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.scene.nivel || S.level, tipo: tipoChat(S.scene) }, ctl.signal);   // una lección puede elegir su propio nivel
+    const r = await fnFetch("chat", { persona: S.scene.persona, history: S.history, level: S.scene.nivel || S.level, tipo: tipoChat(S.scene), leccion_id: S.scene.returnTo?.kind === "lesson" ? S.scene.returnTo.id : undefined }, ctl.signal);   // una lección puede elegir su propio nivel
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw { code: j.error || "chat", status: j.status || r.status, motivo: j.motivo }; }
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
     while (true) {
@@ -938,11 +938,13 @@ async function characterTurn(gen) {
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
       anthropic: "El personaje no respondió. Repite tu frase: esa respuesta no se descontó de tu pase.",
       cuota_diaria: "Llegaste al máximo de hoy para esta práctica. Mañana puedes seguir.",
+      conversacion_completa: "Esta conversación ya terminó. Toca «‹ Terminar» para ver tu resumen.",
+      leccion: "No encontré el personaje de esta lección. Vuelve a abrir la lección e inténtalo de nuevo.",
       no_session: "Tu sesión venció. Vuelve a entrar.",
     }[e.code] || "No hubo respuesta. Revisa tu conexión y repite tu frase.";
     notice(msg);
     logDebug("chat error " + JSON.stringify(e));
-    if (!["rate_limited", "sin_horas", "prueba_agotada", "cuota_diaria"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
+    if (!["rate_limited", "sin_horas", "prueba_agotada", "cuota_diaria", "conversacion_completa"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
     setState("listening", "");
   }
 }
@@ -1849,9 +1851,7 @@ function wire() {
     let failed = false;
     try { const { error } = await sb.auth.signOut(); failed = !!error; } catch { failed = true; }
     if (failed) { btn.disabled = false; alert("No pude cerrar la sesión. Revisa tu conexión e intenta de nuevo."); return; }
-    // Lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
-    for (const k of ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente", "prepBorrador", "pistaDeslizar", "tradLineas", "pistaTraducir", "nivelSinSubir"]) localStorage.removeItem("sala:" + k);
-    for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
+    limpiarLocal();   // lo personal de este usuario no debe verlo quien entre después en el mismo teléfono
     location.reload();   // limpia también lo que está en memoria (cuaderno, cola)
   };
   $("#goalsBtn").onclick = () => window.Estudio?.goals();
@@ -1861,6 +1861,17 @@ function wire() {
   $("#levelTest").onclick = () => window.Estudio?.test();
   ojoClave($("#loginForm"));
 }
+
+// Todo lo personal que la app guarda en el teléfono. Se borra al tocar «Salir» y también cuando entra otra cuenta
+// (la sesión pudo terminar sin «Salir»: contraseña cambiada en otro equipo, token vencido).
+const LOCALES = ["objetivos", "myScenes", "perfilSynced", "customScenes", "lastTest", "lessonIndex", "tarjetas", "cola", "sincronizado", "recordatorio", "practicaHoy", "retos", "level", "voices", "metrics", "escenasSinSubir", "forzarClave", "escenasOcultas", "simPendiente", "prepBorrador", "pistaDeslizar", "tradLineas", "pistaTraducir", "nivelSinSubir", "dueno"];
+function limpiarLocal() {
+  try {
+    for (const k of LOCALES) localStorage.removeItem("sala:" + k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
+  } catch {}
+}
+function duenoLocal() { try { return JSON.parse(localStorage.getItem("sala:dueno") || "null"); } catch { return null; } }
 
 async function boot() {
   wire();
@@ -1873,7 +1884,8 @@ async function boot() {
   if (!SDK || !window.supabase) { show("setup"); $("#setupTitle").textContent = "No se pudo abrir"; $("#setupMsg").textContent = "No cargaron las librerías de la app. Revisa tu conexión y vuelve a abrir la app."; return; }
   // Enlace del correo de bienvenida o de recuperación: se lee antes de que la librería limpie la dirección
   const enlace = location.hash;
-  if (/type=(invite|recovery)/.test(enlace)) store.set("forzarClave", "nueva");
+  // Solo un enlace real (con su token) pide crear contraseña sin la actual; escribir «#type=recovery» a mano no basta
+  if (/type=(invite|recovery)/.test(enlace) && /access_token=[\w.-]{20,}/.test(enlace)) store.set("forzarClave", "nueva");
   if (/error_code=/.test(enlace)) { history.replaceState(null, "", location.pathname); setTimeout(() => { const e = $("#loginErr"); if (e) e.textContent = "Ese enlace ya no sirve. Escribe tu correo y toca «Olvidé mi contraseña» para recibir otro."; }, 300); }
   sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
   window.Fallos?.conectar(sb);
@@ -1888,9 +1900,14 @@ async function boot() {
     S.session = session;
     if (!session) {
       if (S.scene) { pauseSession(""); S.scene = null; S.sesion = null; S.retry = null; }   // sesión vencida en plena escena: al volver a entrar se va a Inicio
+      // La sesión terminó sin «Salir»: la hoja de vida y el simulacro pendiente no se quedan a la vista de otra cuenta
+      try { localStorage.removeItem("sala:prepBorrador"); localStorage.removeItem("sala:simPendiente"); } catch {}
       show("login");
       return;
     }
+    // Entra otra cuenta en este teléfono: nada de la anterior (nivel, escenas, cuaderno) pasa a la nueva
+    const dueno = duenoLocal();
+    if (_ev === "SIGNED_IN" && dueno && dueno !== session.user.id) { limpiarLocal(); location.reload(); return; }
     // Solo una entrada real lleva a Inicio: volver a la app o renovar el token no te saca de donde estás
     if (fromLogin) { renderHome(); show("home"); }
     if (_ev === "SIGNED_IN" && !S.scene) { window.Estudio?.syncPerfil?.(); window.Datos?.sync(); }
@@ -1967,6 +1984,7 @@ function informeHTML(ev) {
   if (!INFORME_ACTIVO) return "";
   const d = S.infDraft || {};
   if (d.enviado && d.repetido) return `<div class="inf-form ok" role="status"><b>Ya enviamos el informe de esta prueba.</b><span class="muted small">Se envía uno por prueba, a la primera dirección que escribiste. Si no lo ves, mira en spam o promociones.</span></div>`;
+  if (d.enviado && d.confirmar) return `<div class="inf-form ok" role="status"><b>Revisa tu correo y toca «Confirmar».</b><span class="muted small">Te enviamos un enlace a ${esc(d.email)}. Al tocarlo te llega tu informe con la guía. Si no lo ves en unos minutos, mira en spam o promociones.</span></div>`;
   if (d.enviado) return `<div class="inf-form ok" role="status"><b>Listo: revisa tu correo.</b><span class="muted small">Te enviamos tu informe a ${esc(d.email)}. Si no llega en unos minutos, mira en spam o promociones.</span></div>`;
   return `<form class="inf-form" id="infForm" novalidate>
     <h2>¿A dónde te enviamos tu informe completo?</h2>
@@ -2004,7 +2022,7 @@ function informeForm(scene, ev, list) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || r.status);
       if (j.enviado === false) throw new Error("no_enviado");   // quedó guardado; al tocar otra vez se reintenta
-      S.infDraft = { email, enviado: true, repetido: !!j.repetido };
+      S.infDraft = { email, enviado: true, repetido: !!j.repetido, confirmar: !!j.confirmar };
       f.outerHTML = informeHTML(ev);
     } catch (err) {
       window.Fallos?.registrar("funcion", "espera-informe", String(err?.message || err));

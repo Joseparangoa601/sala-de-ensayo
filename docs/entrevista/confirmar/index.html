@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirma tu correo · Sala de Ensayo</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<style>
+  :root{--bg:#F4F6F6;--surface:#fff;--ink:#141414;--muted:#54595f;--line:#E1E7E7;--accent:#08748A;--accent-ink:#fff;--warn:#B3403A}
+  @media (prefers-color-scheme:dark){:root{--bg:#11161d;--surface:#18202a;--ink:#eef1f4;--muted:#a3adb8;--line:#2a3542;--accent:#5fc3d6;--accent-ink:#0b1220;--warn:#f0938d}}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:560px;margin:0 auto;padding:40px 18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .eyebrow{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+  h1{font-size:1.4rem;line-height:1.3;margin:0 0 10px;text-wrap:balance} p{margin:0 0 12px} .muted{color:var(--muted);font-size:.95rem}
+  .btn{display:inline-block;min-height:48px;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:700;border-radius:10px;padding:12px 18px;border:0;font:inherit;font-weight:700;cursor:pointer}
+  .err h1{color:var(--warn)}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">Sala de Ensayo</p>
+  <div class="card" id="c" role="status" aria-live="polite"><h1>Confirmando tu correo…</h1><p class="muted">Un momento.</p></div>
+</main>
+<script src="/config.js"></script>
+<script>
+(async () => {
+  const c = document.getElementById("c");
+  const pinta = (html, err) => { c.innerHTML = html; c.classList.toggle("err", !!err); };
+  const t = new URLSearchParams(location.search).get("t") || "";
+  history.replaceState(null, "", location.pathname);   // el enlace no queda en el historial ni se comparte por error
+  const otra = `<a class="btn" href="/entrevista/">Volver a la página de la prueba</a>`;
+  if (!/^[0-9a-f]{64}$/.test(t)) return pinta(`<h1>Este enlace no es válido</h1><p>Ábrelo desde el correo que te enviamos, sin cambiarlo.</p>${otra}`, true);
+  const enviar = async () => {
+    try {
+      const r = await fetch(`${window.SALA_CONFIG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evento: "confirmar", token: t }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 404 || j.error === "token") return pinta(`<h1>Este enlace ya venció</h1><p>Los enlaces duran 7 días. Haz otra vez la prueba gratis y pide tu informe de nuevo.</p>${otra}`, true);
+      if (!r.ok) throw 0;
+      if (j.repetido) return pinta(`<h1>Tu correo ya estaba confirmado</h1><p>Ya te enviamos tu informe. Si no lo ves, mira en spam o promociones.</p>`);
+      if (j.enviado === false) return pinta(`<h1>Confirmaste tu correo</h1><p>No pudimos enviar el informe en este momento. Toca otra vez en un minuto.</p><button class="btn" id="r">Intentar otra vez</button>`, true), (document.getElementById("r").onclick = enviar);
+      pinta(`<h1>Listo: tu informe va en camino</h1><p>Revisa tu correo en un par de minutos. Si no lo ves, mira en spam o promociones.</p>`);
+    } catch {
+      pinta(`<h1>No pudimos confirmar</h1><p>Revisa tu conexión e inténtalo de nuevo.</p><button class="btn" id="r">Intentar otra vez</button>`, true);
+      document.getElementById("r").onclick = enviar;
+    }
+  };
+  enviar();
+})();
+</script>
+</body>
+</html>

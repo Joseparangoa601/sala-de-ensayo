@@ -88,6 +88,7 @@ const friendly = {
   creando: "Todavía se está armando una carpeta. Espera a que termine y vuelve a intentarlo.",
   carpeta_cambio: "Tu carpeta cambió desde otro equipo. La volví a cargar: revisa y vuelve a intentarlo.",
   db: "No pude crear la carpeta nueva y no cambié nada. Inténtalo de nuevo.",
+  tope_carpetas: "Ya tienes 30 carpetas anteriores. Borra alguna en «Tus carpetas anteriores» para crear otra.",
 };
 const failMsg = (j) => Sala.limiteMsg(j) || friendly[j?.error] || "No pude completar eso. Revisa tu conexión e inténtalo de nuevo.";
 
@@ -168,6 +169,7 @@ function form(entrada, nueva = false, borrador = null) {
     <p class="muted small">Tu hoja de vida se guarda en tu cuenta y se procesa con inteligencia artificial para preparar tus respuestas. Puedes borrarla cuando quieras. La app solo usa datos que estén en lo que pegas.</p>
     <div id="fErr"></div>
     <button class="primary wide" id="fGo">${nueva ? "Crear la carpeta nueva" : "Crear mi carpeta"}</button>`);
+  if (!borrador) { const b = Sala.store.get(BORRADOR, null); if (b && b.entrada === entrada) borrador = b; }
   if (borrador) { for (const [id, k] of [["fCv", "cv"], ["fOferta", "oferta"], ["fCargo", "cargo"], ["fEmpresa", "empresa"], ["fFecha", "fecha"]]) { const el = document.getElementById(id); if (el && borrador[k]) el.value = borrador[k]; } }
   else if (nueva && P.row?.cv) { $("#fCv").value = P.row.cv; $("#fArchivoMsg").className = "small muted"; $("#fArchivoMsg").textContent = "Trajimos la hoja de vida de tu carpeta actual. Cámbiala si la actualizaste."; }
   $("#fArchivo").onchange = async (e) => {
@@ -232,7 +234,7 @@ async function createFailed() {
   if (g !== run) return;
   const ant = arch[0];
   paint(E()._err("No se pudo crear la carpeta.") + (ant ? `<p class="muted">Tu carpeta de <b>${esc(ant.cargo || "antes")}</b> está guardada, sin perder nada.</p><div id="pVErr"></div><button class="primary wide" id="pVolverAnt">Volver a mi carpeta de ${esc(ant.cargo || "antes")}</button>` : "")
-    + (Sala.store.get(BORRADOR, null) && !ant ? `<button class="primary wide" id="pBorr">Intentar otra vez con lo que escribiste</button>` : "")
+    + (Sala.store.get(BORRADOR, null) ? `<button class="${ant ? "ghost" : "primary"} wide" id="pBorr">Intentar otra vez con lo que escribiste</button>` : "")
     + `<button class="${ant || Sala.store.get(BORRADOR, null) ? "ghost" : "primary"} wide" id="pAgain">Empezar otra vez</button>`);
   on("pBorr", async () => {
     const b = Sala.store.get(BORRADOR, null); if (!b) return start();
@@ -251,7 +253,7 @@ async function createFailed() {
     try { ({ data: row } = await sb().from("expediente").select("estado,actualizado").maybeSingle()); } catch {}
     if (row?.estado === "listo") return open();
     if (row?.estado === "creando" && Date.now() - Date.parse(row.actualizado) < 300000) return waitCreate();   // todavía trabaja: no se borra lo que está por terminar
-    await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; Sala.store.set(BORRADOR, null); start();
+    await sb().from("expediente").delete().eq("user_id", (await sb().auth.getUser()).data.user.id); P.row = null; start();   // el borrador se queda: el formulario vuelve con lo que escribió
   });
 }
 
@@ -469,11 +471,10 @@ async function carpetaAnterior(id) {
     on("adNo", () => carpetaAnterior(id));
     on("adYes", async () => {
       $("#adYes").disabled = true;
-      const { data } = await sb().auth.getUser(); const uid = data?.user?.id;
-      const activa = P.row?.iniciado && Date.parse(P.row.iniciado) === Date.parse(x.iniciado);
-      const i1 = activa ? { error: null } : await sb().from("expediente_intentos").delete().eq("user_id", uid).eq("expediente_iniciado", x.iniciado);
-      const i2 = await sb().from("expediente_archivo").delete().eq("id", id);
-      if (i1.error || i2.error) { $("#adErr").innerHTML = E()._err("No se pudo borrar. Inténtalo de nuevo."); $("#adYes").disabled = false; return; }
+      // Una sola transacción en el servidor: si desde otro equipo esta carpeta se acaba de reabrir, no se borra nada
+      const { data: rb, error } = await sb().rpc("borrar_expediente_archivado", { p_id: id });
+      if (rb === "no_existe") { P.aviso = "Esa carpeta ya no estaba entre las anteriores (quizá la reabriste en otro equipo). No borré nada."; return open(); }
+      if (error || rb !== "ok") { $("#adErr").innerHTML = E()._err("No se pudo borrar. Inténtalo de nuevo."); $("#adYes").disabled = false; return; }
       P.archivo = P.archivo.filter((c) => c.id !== id);
       anteriores();
     });
