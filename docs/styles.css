@@ -456,6 +456,7 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 .prueba-cierre h2{margin:0}
 .prueba-cierre p{margin:0}
 a.wide{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;padding:0 14px}
+.prueba-cierre .prueba-ig{text-align:center;font-size:.92em}
 .prueba-cierre .linklike{align-self:center;min-height:44px}
 #loginForm a.linklike{align-self:center;min-height:44px;display:flex;align-items:center;text-align:center}
 

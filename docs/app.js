@@ -1152,6 +1152,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
     const dn = $("#rcDone"); if (dn) dn.onclick = () => { off(); leave(); };
     const en = $("#rcEntrar"); if (en) en.onclick = salirDePrueba;
     const rs = $("#rcReservar"); if (rs) rs.onclick = () => trackPrueba("reservar");
+    const ig = $("#rcIG"); if (ig) ig.onclick = () => trackPrueba("instagram");
     if (S.prueba) informeForm(scene, ev, list);
     if (scene.medicion) $("#rcAgain")?.remove();   // la medición vale por el primer intento: no se repite en el momento
   }
@@ -2109,8 +2110,12 @@ function pruebaCierreHTML(ev) {
     <a class="primary wide" id="rcReservar" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">${COMPRA_TXT}</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
+    ${IG_URL ? `<p class="muted prueba-ig">Cada semana, una pregunta de entrevista nueva en Instagram: <a id="rcIG" href="${esc(IG_URL)}" target="_blank" rel="noopener">${esc(IG_TXT)}</a></p>` : ""}
   </div>`;
 }
+// Cuenta de Instagram de la serie «Entrevista en inglés» (creada 15-nov-2026). Vacía = la línea no se muestra
+const IG_URL = "https://www.instagram.com/saladeensayo.app/";
+const IG_TXT = "@saladeensayo.app";
 function salirDePrueba() {
   try { sessionStorage.removeItem("sala:prueba"); } catch {}
   location.href = location.pathname;
