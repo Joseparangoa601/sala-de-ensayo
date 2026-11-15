@@ -136,7 +136,7 @@ async function open() {
 /* ---------------- entrada ---------------- */
 function start() {
   scr("Modo entrevista", "Prepárate en inglés", null);
-  if (paseEstado().vencido) { paint(`<h1>Tu entrevista en inglés</h1><div class="notice" data-kind="warn" id="pVencido">Tu pase ya no está vigente: para crear una carpeta necesitas un pase activo. En Tú → Tu pase ves cómo seguir.</div>`); paintAnteriores(); return; }
+  if (paseEstado().vencido) { paint(`<h1>Tu entrevista en inglés</h1><div class="notice" data-kind="warn" id="pVencido">Tu pase ya no está vigente: para crear una carpeta necesitas un pase activo.</div><div class="stack" id="pCompra">${Sala.compraHTML?.() || ""}</div>`); paintAnteriores(); return; }
   paint(`<h1>Tu entrevista en inglés</h1>
     <p class="muted">Primero armamos tu carpeta: tus historias reales, las preguntas que te harían y un plan. Todo lo que practiques se queda aquí.</p>
     <button class="tile" id="pOferta"><span class="ic" aria-hidden="true"><svg><use href="#i-target"/></svg></span><span><b>Tengo una oferta</b><small>Pega el aviso del cargo y te preparas para ese puesto</small></span></button>
@@ -150,7 +150,7 @@ function paintAnteriores() {
   if (!P.archivo.length) return;
   const el = document.createElement("div");
   el.innerHTML = `<button class="ghost wide" id="pAnt">Ver tus carpetas anteriores (${P.archivo.length})</button>`;
-  (document.getElementById("pPreparo") || document.getElementById("pVencido"))?.after(el);
+  (document.getElementById("pPreparo") || document.getElementById("pCompra") || document.getElementById("pVencido"))?.after(el);
   on("pAnt", anteriores);
 }
 function form(entrada, nueva = false, borrador = null) {
@@ -412,7 +412,7 @@ function borrar() {
 /* ---------------- otra oferta y carpetas anteriores ---------------- */
 function otraOferta() {
   scr("Otra oferta", "Carpeta nueva", hub, BACK);
-  if (paseEstado().vencido) { paint(`<h1>Prepárate para otra entrevista</h1><div class="notice" data-kind="warn">Tu pase ya no está vigente: para crear una carpeta nueva necesitas un pase activo. Tu carpeta actual y las anteriores siguen guardadas. En Tú → Tu pase ves cómo seguir.</div>`); return; }
+  if (paseEstado().vencido) { paint(`<h1>Prepárate para otra entrevista</h1><div class="notice" data-kind="warn">Tu pase ya no está vigente: para crear una carpeta nueva necesitas un pase activo. Tu carpeta actual y las anteriores siguen guardadas.</div>${Sala.compraHTML?.() || ""}`); return; }
   const hs = historias().filter(completa).length;
   paint(`<h1>Prepárate para otra entrevista</h1>
     <p>Tu carpeta de <b>${esc(P.row.cargo || "tu cargo actual")}</b> no se borra: queda en «Carpetas anteriores» con sus historias, respuestas y puntajes, y puedes volver a ella cuando quieras.</p>

@@ -448,6 +448,10 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 .tecnico p{margin:0 0 8px}
 /* Conversación de prueba sin cuenta (?prueba) */
 .prueba-aviso{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:10px 12px;border-radius:12px;border:1px solid var(--tip-line);background:var(--tip-bg);font-size:.88rem}
+/* Salida de la prueba sin respuestas y «prueba agotada»: tarjeta con acción, no un aviso suelto */
+.prueba-salida,.prueba-agotada{gap:8px;padding:14px;font-size:.95rem}
+.prueba-salida .primary,.prueba-agotada .primary{margin-top:4px;text-align:center;text-decoration:none}
+.prueba-salida .linklike,.prueba-agotada .linklike{align-self:center;min-height:44px;display:inline-flex;align-items:center}
 .prueba-cierre{display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-top:16px;border-top:1px solid var(--line)}
 .prueba-cierre h2{margin:0}
 .prueba-cierre p{margin:0}

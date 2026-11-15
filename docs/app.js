@@ -40,9 +40,45 @@ let sb = null;
 /* ---------------- UI helpers ---------------- */
 const icon = (n) => `<svg class="ii" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 window.IC = { play: icon("play"), mic: icon("mic"), bell: icon("bell"), pen: icon("pen"), loop: icon("loop"), trash: icon("trash"), hide: icon("hide") };
+// Botón atrás del teléfono (UX-36). La app no tiene historial propio: sin esto, «atrás» en Android cerraba la app
+// instalada y en la prueba volvía a la landing perdiendo la evaluación. Se deja una sola entrada «guardia» en el
+// historial mientras haya a dónde volver dentro de la app; «atrás» hace lo mismo que el botón «‹» de la pantalla.
+// En Hoy (o en el login) no hay guardia: «atrás» sale de la app, como espera Android.
+let atrasArmado = false, ignorarPop = false;
+const pantallaVisible = () => document.querySelector(".screen:not([hidden])")?.id;
+const hoyActivo = () => document.querySelector('.tabbar [data-tab="hoy"]')?.getAttribute("aria-current") === "page";
+function hayAtras() {
+  const v = pantallaVisible();
+  return ["talk", "study", "review", "recap"].includes(v) || (v === "home" && !hoyActivo());
+}
+function armarAtras() {
+  setTimeout(() => {
+    if (atrasArmado && !hayAtras()) {   // volviste a Hoy con el botón de la app: se retira la guardia, así «atrás» sale
+      atrasArmado = false; ignorarPop = true;
+      try { history.back(); } catch { ignorarPop = false; }
+      return;
+    }
+    if (atrasArmado || !hayAtras()) return;
+    try { history.pushState({ sala: 1 }, ""); atrasArmado = true; } catch {}
+  }, 0);
+}
+addEventListener("popstate", () => {
+  if (ignorarPop) { ignorarPop = false; return; }
+  atrasArmado = false;
+  const v = pantallaVisible();
+  const clic = (sel) => { const b = document.querySelector(sel); if (b && !b.hidden && !b.disabled && b.offsetParent !== null) { b.click(); return true; } return false; };
+  if (v === "talk") clic("#backBtn");
+  else if (v === "study") clic("#studyBack");
+  else if (v === "review") clic("#reviewBack");
+  else if (v === "recap") { if (!S.prueba) clic("#rcDone"); }   // en la prueba, «atrás» no borra la evaluación ni el informe sin enviar
+  else if (v === "home" && !hoyActivo()) document.querySelector('.tabbar [data-tab="hoy"]')?.click();
+  armarAtras();
+});
+
 function show(id) {
   const antes = document.activeElement;
   for (const el of document.querySelectorAll(".screen")) el.hidden = el.id !== id;
+  armarAtras();
   // El foco no se queda en un botón que ya no se ve: pasa al título de la pantalla nueva (lector de pantalla y teclado)
   if (!antes || antes === document.body || antes.closest("[hidden]")) {
     const t = document.getElementById(id)?.querySelector('h1, [role="heading"][aria-level="1"]');
@@ -943,6 +979,7 @@ async function characterTurn(gen) {
       no_session: "Tu sesión venció. Vuelve a entrar.",
     }[e.code] || "No hubo respuesta. Revisa tu conexión y repite tu frase.";
     notice(msg);
+    if (e.code === "prueba_agotada") pruebaAgotadaEnLog();
     logDebug("chat error " + JSON.stringify(e));
     if (!["rate_limited", "sin_horas", "prueba_agotada", "cuota_diaria", "conversacion_completa"].includes(e.code)) window.Fallos?.registrar("funcion", "chat", e.code || e.name || "desconocido", e.message || e.status);
     setState("listening", "");
@@ -1383,7 +1420,7 @@ function ojoClave(raiz) {
 function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
   if (e?.code === "sin_horas") avisoPase(e.motivo);
-  else if (e?.code === "prueba_agotada") notice(PRUEBA_AGOTADA);
+  else if (e?.code === "prueba_agotada") { notice(PRUEBA_AGOTADA); pruebaAgotadaEnLog(); }
   else if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
   else notice("La voz no está disponible por ahora. Puedes escribir abajo.");
 }
@@ -1745,6 +1782,7 @@ function wire() {
     for (const t of document.querySelectorAll(".tabpanel")) t.hidden = t.dataset.tab !== b.dataset.tab;
     $("#homeBody").scrollTop = 0;
     cerrarDeslizadas();
+    armarAtras();
   };
   $("#forgotBtn").onclick = async () => {
     const email = $("#email").value.trim().toLowerCase(), err = $("#loginErr");
@@ -1771,6 +1809,8 @@ function wire() {
   };
   $("#pauseBtn").onclick = () => (S.state === "paused" ? resumeSession() : pauseSession(""));
   $("#backBtn").onclick = () => {
+    // Prueba sin ninguna respuesta todavía: no hay resumen que mostrar. Antes la pantalla quedaba congelada.
+    if (S.prueba && S.scene && !turno.partes.length && !(S.sesion?.turnos > 0)) { pauseSession(""); apagarMic(); pruebaSalida(); return; }
     if (turno.partes.length && S.sesion) {   // terminaste sin tocar Listo: esa respuesta también cuenta
       const dicho = turno.partes.join(" "); turno.partes = [];
       S.history.push({ role: "user", content: dicho }); addBubble("user", dicho);
@@ -1942,7 +1982,8 @@ async function iniciarPrueba() {
       history.replaceState(null, "", location.pathname);
       S.prueba = false; document.body.classList.remove("prueba");
       show("login");
-      $("#loginErr").textContent = j.global ? "La prueba gratis llegó a su cupo de hoy. Vuelve mañana o compra tu acceso." : j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o compra tu acceso." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+      if (j.error === "prueba_agotada") { $("#pruebaAgotada")?.remove(); $("#loginForm").insertAdjacentHTML("afterbegin", `<div id="pruebaAgotada">${pruebaAgotadaHTML(j.global)}</div>`); $("#loginErr").textContent = ""; }
+      else $("#loginErr").textContent = "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
       return;
     }
     try { sessionStorage.setItem("sala:prueba", tok); } catch {}
@@ -1957,6 +1998,33 @@ function pruebaEscena() {
   $("#backBtn").textContent = "‹ Terminar";
   $("#backBtn").setAttribute("aria-label", "Terminar la prueba");
   $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Responde en voz alta o escribe. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
+}
+function pruebaSalida() {
+  $("#pruebaSalida")?.remove();
+  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso prueba-salida" id="pruebaSalida" role="dialog" aria-labelledby="psT">
+    <b id="psT">Aún no respondiste ninguna pregunta</b>
+    <span>La prueba son ${PRUEBA_TURNOS} respuestas y al final ves tu evaluación. ¿Quieres seguir?</span>
+    <button class="primary wide" id="psSeguir">Seguir con la prueba</button>
+    <a class="linklike" href="/entrevista/">Ver qué incluye Sala de Ensayo</a>
+  </div>`);
+  $("#log").scrollTop = 0;
+  $("#psSeguir").onclick = () => { $("#pruebaSalida")?.remove(); resumeSession(); };
+  $("#psSeguir").focus();
+}
+// «Prueba agotada»: quien vuelve a probar es el más interesado; se le da el camino de compra ahí mismo
+function pruebaAgotadaHTML(global) {
+  return `<div class="prueba-aviso prueba-agotada" role="status">
+    <b>${global ? "La prueba gratis llegó a su cupo de hoy" : "Ya usaste la prueba gratis de hoy"}</b>
+    <span>Puedes volver mañana o empezar ahora con tu acceso: 30 días para ensayar con tu hoja de vida y la oferta real.</span>
+    <a class="primary wide" id="paComprar" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">${COMPRA_TXT}</a>
+    <a class="linklike" href="/entrevista/">Ver qué incluye</a>
+  </div>`;
+}
+function pruebaAgotadaEnLog() {
+  if (!S.prueba || $("#log .prueba-agotada")) return;
+  $("#log").insertAdjacentHTML("beforeend", pruebaAgotadaHTML(false));
+  $("#paComprar")?.addEventListener("click", () => trackPrueba("reservar"));
+  scrollLog();
 }
 function pruebaTurno(n) {
   const max = S.scene?.turnosMax || PRUEBA_TURNOS;
@@ -2034,13 +2102,14 @@ function informeForm(scene, ev, list) {
 }
 // El precio va justo después de los errores: es el momento en que la persona ve lo que le falta
 function pruebaCierreHTML(ev) {
-  return `<div class="prueba-cierre">
+  // El formulario del informe va primero: quien toca comprar ya dejó su correo y no pierde su evaluación
+  return `${informeHTML(ev)}<div class="prueba-cierre">
     <h2>Corrige estos errores antes de tu entrevista</h2>
     <p class="muted">Esto fue una sola escena. Con tu acceso ensayas 30 días con tu hoja de vida y la oferta real, todas las etapas de la entrevista, y estos errores vuelven en tu repaso hasta que te salgan solos.</p>
-    <a class="primary wide" id="rcReservar" href="${COMPRA_URL}">${COMPRA_TXT}</a>
+    <a class="primary wide" id="rcReservar" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">${COMPRA_TXT}</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
-  </div>${informeHTML(ev)}`;
+  </div>`;
 }
 function salirDePrueba() {
   try { sessionStorage.removeItem("sala:prueba"); } catch {}
@@ -2096,6 +2165,8 @@ function paintNivel() {
 window.Sala = {
   ojoClave, limiteMsg, deslizable, cerrarDeslizadas, tactil,
   pase: () => S.pase,
+  // Botón de compra con el aviso de pagar con el mismo correo (lo usa el Modo entrevista con el pase vencido)
+  compraHTML: () => (COMPRA_URL ? `<a class="primary wide" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">Comprar otro pase · 15 conversaciones y 30 días</a>${mismoCorreo()}` : ""),
   // Lo que una escena deja guardado en este equipo: voz elegida y reto pendiente
   olvidarEscena(id, titulos) {
     delete S.voices[id]; store.set("voices", S.voices);
