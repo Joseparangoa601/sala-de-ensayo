@@ -1216,7 +1216,8 @@ function briefHTML(scene) {
   </div>`;
 }
 // Conversación de prueba sin cuenta
-const PRUEBA_URL = new URLSearchParams(location.search).has("prueba");
+// Instagram borra los parámetros sin valor (?prueba): los enlaces de los reels y de la campaña «Laboratorio» también abren la prueba por su utm_campaign
+const PRUEBA_URL = (() => { const q = new URLSearchParams(location.search); return q.has("prueba") || ["reels", "laboratorio"].includes(q.get("utm_campaign")); })();
 const PRUEBA_TURNOS = 5, PRUEBA_ESCENA = "recruiter", PRUEBA_NIVEL = "B1";
 const PRUEBA_AGOTADA = "Ya usaste la prueba gratis de hoy. Compra tu acceso para seguir practicando.";
 const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófono para escucharte.";
