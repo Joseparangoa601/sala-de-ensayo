@@ -59,7 +59,14 @@ async function sync() {
     if (!s?.session) return;
     // Lo local es de quien lo creó: si entra otra cuenta sin haber cerrado sesión, no se sube a su nombre
     const uid = s.session.user.id, owner = load(K.owner, null);
-    if (owner && owner !== uid) { console.warn("Otra cuenta en este teléfono: descarto la cola local", queue.length); queue = []; cards = []; persist(); }
+    if (owner && owner !== uid) {
+      // Entró otra cuenta en este teléfono (también por un enlace de recuperación o invitación, que no pasa por
+      // SIGNED_IN): nada de la anterior se queda, y este teléfono deja de recibir sus avisos.
+      console.warn("Otra cuenta en este teléfono: limpio lo local", queue.length);
+      queue = []; cards = [];
+      try { navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager?.getSubscription()).then((x) => x?.unsubscribe()).catch(() => {}); } catch {}
+      window.limpiarLocal?.(); save(K.owner, uid); location.reload(); return;
+    }
     if (owner !== uid) save(K.owner, uid);
     // 1) subir la cola en orden; si algo falla, se reintenta luego
     while (queue.length) {

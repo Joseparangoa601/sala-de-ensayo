@@ -938,7 +938,7 @@ async function characterTurn(gen) {
       unauthorized: "Tu sesión venció. Vuelve a entrar.",
       anthropic: "El personaje no respondió. Repite tu frase: esa respuesta no se descontó de tu pase.",
       cuota_diaria: "Llegaste al máximo de hoy para esta práctica. Mañana puedes seguir.",
-      conversacion_completa: "Esta conversación ya terminó. Toca «‹ Terminar» para ver tu resumen.",
+      conversacion_completa: "Esta conversación ya terminó. Sal con el botón de arriba a la izquierda para ver tu resumen.",
       leccion: "No encontré el personaje de esta lección. Vuelve a abrir la lección e inténtalo de nuevo.",
       no_session: "Tu sesión venció. Vuelve a entrar.",
     }[e.code] || "No hubo respuesta. Revisa tu conexión y repite tu frase.";
@@ -1871,6 +1871,7 @@ function limpiarLocal() {
     for (const k of Object.keys(localStorage)) if (k.startsWith("sala:lesson:")) localStorage.removeItem(k);
   } catch {}
 }
+window.limpiarLocal = limpiarLocal;   // Datos.sync lo usa si descubre que entró otra cuenta (enlace de correo)
 function duenoLocal() { try { return JSON.parse(localStorage.getItem("sala:dueno") || "null"); } catch { return null; } }
 
 async function boot() {
@@ -1941,7 +1942,7 @@ async function iniciarPrueba() {
       history.replaceState(null, "", location.pathname);
       S.prueba = false; document.body.classList.remove("prueba");
       show("login");
-      $("#loginErr").textContent = j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o compra tu acceso." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+      $("#loginErr").textContent = j.global ? "La prueba gratis llegó a su cupo de hoy. Vuelve mañana o compra tu acceso." : j.error === "prueba_agotada" ? "Ya usaste las pruebas gratis de hoy en esta conexión. Vuelve mañana o compra tu acceso." : "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
       return;
     }
     try { sessionStorage.setItem("sala:prueba", tok); } catch {}

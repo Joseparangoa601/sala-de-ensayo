@@ -21,7 +21,7 @@
 <body>
 <main class="wrap">
   <p class="eyebrow">Sala de Ensayo</p>
-  <div class="card" id="c" role="status" aria-live="polite"><h1>Confirmando tu correo…</h1><p class="muted">Un momento.</p></div>
+  <div class="card" id="c" role="status" aria-live="polite"><h1>Confirma tu correo</h1><p class="muted">Cargando…</p></div>
 </main>
 <script src="/config.js"></script>
 <script>
@@ -38,6 +38,7 @@
       const j = await r.json().catch(() => ({}));
       if (r.status === 404 || j.error === "token") return pinta(`<h1>Este enlace ya venció</h1><p>Los enlaces duran 7 días. Haz otra vez la prueba gratis y pide tu informe de nuevo.</p>${otra}`, true);
       if (!r.ok) throw 0;
+      if (j.en_curso) return pinta(`<h1>Tu informe va en camino</h1><p>Ya lo estamos enviando. Si en unos minutos no lo ves, mira en spam o promociones.</p>`);
       if (j.repetido) return pinta(`<h1>Tu correo ya estaba confirmado</h1><p>Ya te enviamos tu informe. Si no lo ves, mira en spam o promociones.</p>`);
       if (j.enviado === false) return pinta(`<h1>Confirmaste tu correo</h1><p>No pudimos enviar el informe en este momento. Toca otra vez en un minuto.</p><button class="btn" id="r">Intentar otra vez</button>`, true), (document.getElementById("r").onclick = enviar);
       pinta(`<h1>Listo: tu informe va en camino</h1><p>Revisa tu correo en un par de minutos. Si no lo ves, mira en spam o promociones.</p>`);
@@ -46,7 +47,9 @@
       document.getElementById("r").onclick = enviar;
     }
   };
-  enviar();
+  // La confirmación espera un toque: los programas que revisan enlaces en el correo no confirman por la persona.
+  pinta(`<h1>Confirma tu correo</h1><p>Toca el botón y te enviamos el informe de tu prueba, con la guía de las 12 preguntas.</p><button class="btn" id="ok">Confirmar y recibir mi informe</button>`);
+  document.getElementById("ok").onclick = (e) => { e.target.disabled = true; e.target.textContent = "Confirmando…"; enviar(); };
 })();
 </script>
 </body>
