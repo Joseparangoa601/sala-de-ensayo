@@ -1220,6 +1220,7 @@ function briefHTML(scene) {
 // Instagram borra los parámetros sin valor (?prueba): los enlaces de los reels y de la campaña «Laboratorio» también abren la prueba por su utm_campaign
 const PRUEBA_URL = (() => { const q = new URLSearchParams(location.search); return q.has("prueba") || ["reels", "laboratorio"].includes(q.get("utm_campaign")); })();
 const PRUEBA_TURNOS = 5, PRUEBA_ESCENA = "recruiter", PRUEBA_NIVEL = "B1";
+const PRUEBA_OPEN = "Hi, this is Sarah from the recruiting team. Thanks for joining! Let's start with one I ask everyone: tell me about a time you improved a process at work.";
 const PRUEBA_AGOTADA = "Ya usaste la prueba gratis de hoy. Compra tu acceso para seguir practicando.";
 const START_CAPTION = "Toca el círculo para empezar. La app usará el micrófono para escucharte.";
 async function startScene(scene) {
@@ -1989,6 +1990,22 @@ async function iniciarPrueba() {
   S.pruebaEsperando = tok ? Promise.resolve(true) : pedirPasePrueba();
   pruebaEscena();
   trackPrueba(EN_APP ? "vista_app" : "vista");
+  medirSalidaPrueba();
+}
+// 16-nov: cuánto tiempo se queda la persona antes de irse (la primera vez que deja la página), en tramos.
+// Distingue «tocó por curiosidad y se fue en segundos» (problema del anuncio) de «leyó y se fue» (problema de la tarjeta).
+function medirSalidaPrueba() {
+  const t0 = performance.now();
+  let enviado = false;
+  const salir = () => {
+    if (enviado) return;
+    enviado = true;
+    const s = (performance.now() - t0) / 1000;
+    const tramo = s < 3 ? "0-3s" : s < 10 ? "3-10s" : s < 30 ? "10-30s" : s < 60 ? "30-60s" : s < 180 ? "1-3m" : "3m+";
+    trackPrueba("salida_" + tramo);
+  };
+  addEventListener("pagehide", salir);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) salir(); });
 }
 // Navegador interno de Instagram o Facebook: ahí el micrófono suele estar bloqueado
 const EN_APP = /Instagram|FBAN|FBAV|FB_IAB/i.test(navigator.userAgent);
@@ -2024,16 +2041,19 @@ function enlaceNavegador() {
 const AVISO_APP = "Estás en el navegador de Instagram: si el micrófono no responde, escribe tu respuesta o toca ··· arriba y elige «Abrir en el navegador».";
 function pruebaEscena() {
   S.pruebaFin = false; S.pruebaCerrando = false;
-  const base = window.SCENES.find((s) => s.id === PRUEBA_ESCENA) || window.SCENES[0];
+  // 16-nov: la prueba abre con la misma pregunta del súper comercial (message match): quien viene del reel prueba
+  // exactamente lo que vio. Antes abría con «¿Es buen momento para hablar?» y 51 de 51 se fueron sin responder.
+  const base = { ...(window.SCENES.find((s) => s.id === PRUEBA_ESCENA) || window.SCENES[0]), open: PRUEBA_OPEN,
+    desc: "Cuenta una mejora que hiciste: el problema, lo que hiciste tú y el resultado." };
   startScene({ ...base, nivel: PRUEBA_NIVEL });
   $("#backBtn").textContent = "‹ Terminar";
   $("#backBtn").setAttribute("aria-label", "Terminar la prueba");
   // La primera pregunta va arriba, sin bajar, con los dos caminos claros (antes estaba detrás de «Toca para empezar»).
   // Luego el aviso de la prueba encima de ella; la explicación de la práctica queda debajo.
   $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-pregunta" id="pruebaPregunta">
-    <span class="lbl">${esc(base.name || "La reclutadora")} te llama</span>
-    <p lang="en"><b>${esc(base.open)}</b></p>
-    ${base.id === "recruiter" ? `<span class="muted small">«¿Es buen momento para hablar unos 15 minutos?» Responde en inglés, aunque sea corto.</span>` : ""}
+    <span class="lbl">La pregunta del video · ${esc(base.name || "La reclutadora")}</span>
+    <p lang="en"><b>Tell me about a time you improved a process at work.</b></p>
+    <span class="muted small">«Cuéntame de una vez que mejoraste un proceso en tu trabajo.» Tú lo hiciste: ahora dilo en inglés, aunque sea corto. Te corrijo en español.</span>
     <button class="primary wide" id="ppVoz">Responder con mi voz</button>
     <button class="ghost wide" id="ppTexto">Escribir mi respuesta</button>
     ${EN_APP ? `<span class="muted small prueba-app">${AVISO_APP}</span>${enlaceNavegador()}` : ""}
