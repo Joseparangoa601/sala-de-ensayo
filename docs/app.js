@@ -889,6 +889,7 @@ function similarity(a, b) {
 /* ---------------- un turno ---------------- */
 async function userSaid(text, m = {}) {
   if (S.sinPase) { avisoPase(S.sinPase); return; }   // sin pase no se envía nada: se queda «Pensando» para siempre
+  if (S.prueba && S.r1Contado !== S.pruebaToken) { S.r1Contado = S.pruebaToken; trackPrueba("respuesta1"); }   // primera respuesta de esta prueba
   stopSpeaking();                         // invalida cualquier respuesta previa
   turno.partes = [];                      // si escribes, lo escrito reemplaza lo dicho a medias
   notice("");
@@ -1245,11 +1246,14 @@ async function begin() {
   if (S.sinPase || (S.pase && S.pase.segundos_usados >= S.pase.segundos_total && !tipoChat(scene))) { avisoPase(S.sinPase || "agotado"); return; }
   preparing = true;
   unlockAudio();                                  // iOS: debe ocurrir dentro del toque
-  setState("thinking", "Preparando micrófono y voz…");
+  if (S.prueba) trackPrueba("toque");
+  setState("thinking", S.prueba && !S.pruebaToken ? "Preparando tu entrevista…" : "Preparando micrófono y voz…");
   try {
+    if (S.prueba && !S.pruebaToken && !(await S.pruebaEsperando)) return;   // sin pase ya se mostró el aviso
     await azureToken();
     if (!AZ.synth) makeSynth();
     if (!vadNode) await startMic(); else vadNode.start();   // al salir de una escena el micrófono queda en pausa
+    if (S.prueba) trackPrueba("mic_ok");
     if (S.scene !== scene || S.state !== "thinking") {      // saliste o pausaste mientras se preparaba
       try { vadNode?.pause(); } catch {}
       if (S.scene === scene) setState("idle", START_CAPTION);
@@ -1263,6 +1267,7 @@ async function begin() {
     player.onIdle = () => { if (gen === S.gen && S.state === "speaking") setState("listening", ""); };
     speakSentence(S.scene.open, gen);
   } catch (e) {
+    if (S.prueba) trackPrueba(("mic_" + (e?.name || e?.code || "error")).slice(0, 20));
     if (S.scene !== scene) return;
     voiceFailed(e);
     if (!S.history.length) openScene();
@@ -1275,6 +1280,7 @@ function openScene() {
   S.cefrVotes = []; S.confs = []; S.sinPase = null; S.avisoVozCoach = false; quitarFinPase();
   S.sesion = window.Datos ? Datos.newSession(S.scene.title) : null;
   if (S.sesion && S.scene.returnTo?.kind === "lesson") S.sesion.leccion_id = S.scene.returnTo.id;   // si borras la lección, esta conversación se va con ella
+  $("#pruebaPregunta")?.remove();   // la tarjeta de la primera pregunta se vuelve la burbuja de la conversación
   S.history.push({ role: "assistant", content: S.scene.open });
   addAyudas(addBubble("assistant", S.scene.open), S.scene.open);
   // Consejo de audífonos en las 2 primeras conversaciones: sin ellos el micrófono capta el ruido y la voz del personaje
@@ -1423,6 +1429,7 @@ function voiceFailed(e) {
   logDebug("inicio falló " + JSON.stringify(e) + " " + (e?.message || ""));
   if (e?.code === "sin_horas") avisoPase(e.motivo);
   else if (e?.code === "prueba_agotada") { notice(PRUEBA_AGOTADA); pruebaAgotadaEnLog(); }
+  else if (EN_APP) notice(AVISO_APP);
   else if (e?.name === "NotAllowedError") notice("No diste permiso al micrófono. Actívalo en Ajustes → Safari → Micrófono, o escribe abajo.");
   else notice("La voz no está disponible por ahora. Puedes escribir abajo.");
 }
@@ -1839,6 +1846,12 @@ function wire() {
     e.preventDefault();
     const t = $("#typeBox").value.trim(); if (!t) return;
     if (!S.history.length && S.state !== "idle") return;   // aún se prepara la escena: el texto se queda en la caja
+    // Prueba: el pase aún no llega. El texto se queda en la caja y se envía solo cuando llegue
+    if (S.prueba && !S.pruebaToken) {
+      notice("Un momento: preparando tu entrevista…", "info");
+      S.pruebaEsperando?.then((ok) => { if (ok && S.prueba) { notice(""); $("#typeForm").requestSubmit(); } });
+      return;
+    }
     $("#typeBox").value = "";
     if (S.retry && handleRetry(t)) return;
     unlockAudio();                        // tras volver de segundo plano el audio puede estar suspendido
@@ -1968,38 +1981,66 @@ async function iniciarPrueba() {
   S.prueba = true;
   document.body.classList.add("prueba");
   if (window.Datos) { Datos.saveSession = () => {}; Datos.addFromCorrection = () => {}; }
-  show("splash");
   let tok = null;
   try { tok = sessionStorage.getItem("sala:prueba"); } catch {}
-  if (!tok) {
-    let j = {}, st = 0;
-    try {
-      const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ evento: "prueba", donde: "inicio", sid: sidEmbudo(), interno: INTERNO, utm: Object.fromEntries(new URLSearchParams(location.search)) }) });
-      st = r.status; j = await r.json().catch(() => ({}));
-    } catch {}
-    tok = j.token || null;
-    if (!tok) {
-      logDebug("prueba sin pase " + st + " " + (j.error || ""));
-      history.replaceState(null, "", location.pathname);
-      S.prueba = false; document.body.classList.remove("prueba");
-      show("login");
-      if (j.error === "prueba_agotada") { $("#pruebaAgotada")?.remove(); $("#loginForm").insertAdjacentHTML("afterbegin", `<div id="pruebaAgotada">${pruebaAgotadaHTML(j.global)}</div>`); $("#loginErr").textContent = ""; }
-      else $("#loginErr").textContent = "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
-      return;
-    }
-    try { sessionStorage.setItem("sala:prueba", tok); } catch {}
-  }
-  S.pruebaToken = tok;
+  if (tok) S.pruebaToken = tok;
+  // La entrevista se ve YA y el pase llega por detrás. Medido 16-nov: en frío la función tarda ~6,5 s y antes
+  // la persona solo veía el logo: 27 de 27 inicios desde el celular se fueron sin responder.
+  S.pruebaEsperando = tok ? Promise.resolve(true) : pedirPasePrueba();
   pruebaEscena();
+  trackPrueba(EN_APP ? "vista_app" : "vista");
 }
+// Navegador interno de Instagram o Facebook: ahí el micrófono suele estar bloqueado
+const EN_APP = /Instagram|FBAN|FBAV|FB_IAB/i.test(navigator.userAgent);
+const EN_ANDROID = /Android/i.test(navigator.userAgent);
+async function pedirPasePrueba() {
+  let j = {}, st = 0;
+  try {
+    const r = await fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ evento: "prueba", donde: "inicio", sid: sidEmbudo(), interno: INTERNO, utm: Object.fromEntries(new URLSearchParams(location.search)) }) });
+    st = r.status; j = await r.json().catch(() => ({}));
+  } catch {}
+  const tok = j.token || null;
+  if (!tok) {
+    logDebug("prueba sin pase " + st + " " + (j.error || ""));
+    history.replaceState(null, "", location.pathname);
+    try { pauseSession(""); apagarMic(); } catch {}
+    S.scene = null; S.prueba = false; document.body.classList.remove("prueba");
+    show("login");
+    if (j.error === "prueba_agotada") { $("#pruebaAgotada")?.remove(); $("#loginForm").insertAdjacentHTML("afterbegin", `<div id="pruebaAgotada">${pruebaAgotadaHTML(j.global)}</div>`); $("#loginErr").textContent = ""; }
+    else $("#loginErr").textContent = "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+    return false;
+  }
+  try { sessionStorage.setItem("sala:prueba", tok); } catch {}
+  S.pruebaToken = tok;
+  return true;
+}
+// Abrir en Chrome desde el navegador de Instagram en Android; en iPhone no hay forma: se explica el menú ···
+function enlaceNavegador() {
+  if (!EN_ANDROID) return "";
+  const u = location.host + location.pathname + location.search;
+  return `<a class="linklike" href="intent://${esc(u)}#Intent;scheme=https;package=com.android.chrome;end">Abrir en Chrome</a>`;
+}
+const AVISO_APP = "Estás en el navegador de Instagram: si el micrófono no responde, escribe tu respuesta o toca ··· arriba y elige «Abrir en el navegador».";
 function pruebaEscena() {
   S.pruebaFin = false; S.pruebaCerrando = false;
   const base = window.SCENES.find((s) => s.id === PRUEBA_ESCENA) || window.SCENES[0];
   startScene({ ...base, nivel: PRUEBA_NIVEL });
   $("#backBtn").textContent = "‹ Terminar";
   $("#backBtn").setAttribute("aria-label", "Terminar la prueba");
-  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Responde en voz alta o escribe. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
+  // La primera pregunta va arriba, sin bajar, con los dos caminos claros (antes estaba detrás de «Toca para empezar»).
+  // Luego el aviso de la prueba encima de ella; la explicación de la práctica queda debajo.
+  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-pregunta" id="pruebaPregunta">
+    <span class="lbl">${esc(base.name || "La reclutadora")} te llama</span>
+    <p lang="en"><b>${esc(base.open)}</b></p>
+    ${base.id === "recruiter" ? `<span class="muted small">«¿Es buen momento para hablar unos 15 minutos?» Responde en inglés, aunque sea corto.</span>` : ""}
+    <button class="primary wide" id="ppVoz">Responder con mi voz</button>
+    <button class="ghost wide" id="ppTexto">Escribir mi respuesta</button>
+    ${EN_APP ? `<span class="muted small prueba-app">${AVISO_APP}</span>${enlaceNavegador()}` : ""}
+  </div>`);
+  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
+  $("#ppVoz").onclick = () => $("#orb").click();
+  $("#ppTexto").onclick = () => { trackPrueba("texto"); $("#typeBox").focus(); };
 }
 function pruebaSalida() {
   $("#pruebaSalida")?.remove();

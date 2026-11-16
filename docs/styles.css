@@ -448,6 +448,10 @@ body.con-pase .ti.next .tick{border-color:var(--line);color:var(--muted)}
 .tecnico p{margin:0 0 8px}
 /* Conversación de prueba sin cuenta (?prueba) */
 .prueba-aviso{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:10px 12px;border-radius:12px;border:1px solid var(--tip-line);background:var(--tip-bg);font-size:.88rem}
+.prueba-pregunta{display:flex;flex-direction:column;gap:8px;margin:0 0 10px;padding:14px;border-radius:14px;border:2px solid var(--accent,#0B7A8F);background:var(--surface);font-size:.95rem}
+.prueba-pregunta p{margin:0;font-size:1.08rem;line-height:1.35}
+.prueba-pregunta .lbl{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.prueba-pregunta .prueba-app{border-top:1px solid var(--line);padding-top:8px}
 /* Salida de la prueba sin respuestas y «prueba agotada»: tarjeta con acción, no un aviso suelto */
 .prueba-salida,.prueba-agotada{gap:8px;padding:14px;font-size:.95rem}
 .prueba-salida .primary,.prueba-agotada .primary{margin-top:4px;text-align:center;text-decoration:none}
