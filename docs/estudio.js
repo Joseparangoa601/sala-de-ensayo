@@ -825,10 +825,10 @@ function confirmGenerate(src, level) {
     </fieldset>
     ${elegir ? `<fieldset class="tramo"><legend>¿Qué parte quieres estudiar?</legend>
       <div class="tramo-row">
-        <label>Empieza en<input id="vDesde" type="text" inputmode="decimal" autocomplete="off" placeholder="0:00"></label>
-        <label>Termina en<input id="vHasta" type="text" inputmode="decimal" autocomplete="off" placeholder="${long ? "ej. 12:00" : mmss(dur)}"></label>
+        <label>Empieza en el minuto<input id="vDesde" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0"><small class="tramo-eq" id="vDesdeEq"></small></label>
+        <label>Termina en el minuto<input id="vHasta" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="${long ? "ej. 12" : Math.ceil(dur / 60)}"><small class="tramo-eq" id="vHastaEq"></small></label>
       </div>
-      <p class="muted small">Escribe el minuto como en YouTube: 30:15${dur >= 3600 ? " o 1:05:30" : ""}. Máximo ${MAX_PARTE / 60} minutos por lección.</p>
+      <p class="muted small">Solo el número de minutos: 10 es el minuto 10${dur >= 3600 ? ` y 75 es 1 h 15 min. El video llega hasta el minuto ${Math.floor(dur / 60)}` : ""}. Máximo ${MAX_PARTE / 60} minutos por lección.</p>
     </fieldset><div class="notice" data-kind="warn" id="vNota" role="status"></div>` : ""}
     <button class="primary wide" id="vGen">Crear lección ${lv}</button>
     <p class="muted small">Tarda cerca de 1 minuto. Te aviso con una notificación cuando esté lista.</p>`);
@@ -843,17 +843,19 @@ function confirmGenerate(src, level) {
   if (elegir) {
     const pintar = () => {
       const tD = $("#vDesde").value.trim(), tH = $("#vHasta").value.trim();
+      // En videos de más de una hora, «75» se traduce a «1 h 15 min» debajo de la casilla
+      for (const [v, id] of [[tD, "#vDesdeEq"], [tH, "#vHastaEq"]]) { const x = v ? leerTiempo(v) : null; $(id).textContent = x != null && x >= 3600 ? `= ${durLarga(x)}` : ""; }
       const d = tD ? leerTiempo(tD) : 0, hh = tH ? leerTiempo(tH) : null;
       const mal = (m) => { $("#vGen").disabled = true; $("#vNota").innerHTML = m; };
       $("#vGen").disabled = false;
-      if (d === null || hh === null && tH) return mal("Escribe el tiempo como minutos:segundos, por ejemplo 30:15.");
-      if (d >= dur - 10) return mal(`El video dura ${mmss(dur)}. Elige un inicio anterior.`);
+      if (d === null || hh === null && tH) return mal("Escribe solo el número del minuto, por ejemplo 10.");
+      if (d >= dur - 10) return mal(`El video llega hasta el minuto ${Math.floor(dur / 60)}. Elige un inicio anterior.`);
       if (hh === null) {
         // solo el inicio: la app escoge unos 10 minutos dentro de los 25 que siguen (como antes)
         exacto = false; elegida = ventana(src.chunks, d);
         if (elegida.palabras < 40) return mal("Desde ahí queda muy poco texto. Elige un inicio anterior.");
         $("#vNota").innerHTML = !tD && !long ? `Si dejas las casillas vacías, la app escoge la parte más útil para ti (unos 10 minutos).`
-          : `${long ? `<b>Video largo (${durLarga(dur)}).</b> ` : ""}Si dejas vacía la casilla «Termina en», la app busca entre el ${mmss(elegida.ini)} y el ${mmss(elegida.fin)} y escoge unos 10 minutos. Para estudiar una parte exacta, escribe dónde termina.`;
+          : `${long ? `<b>Video largo (${durLarga(dur)}).</b> ` : ""}Si dejas vacía la casilla «Termina en el minuto», la app busca entre el minuto ${Math.floor(elegida.ini / 60)} y el ${Math.ceil(elegida.fin / 60)} y escoge unos 10 minutos. Para estudiar una parte exacta, escribe en qué minuto termina.`;
         return;
       }
       const h = Math.min(hh, dur);
@@ -864,7 +866,7 @@ function confirmGenerate(src, level) {
       const ch = src.chunks.filter((c) => c.t + c.d > d + 0.5 && c.t < h - 0.5);
       elegida = { chunks: ch, ini: ch.length ? ch[0].t : d, fin: ch.length ? ch[ch.length - 1].t + ch[ch.length - 1].d : h, palabras: ch.reduce((a, c) => a + c.text.split(/\s+/).length, 0) };
       if (elegida.palabras < 40) return mal("En esa parte casi no hay texto. Elige otra.");
-      $("#vNota").innerHTML = `Vas a estudiar exactamente del <b>${mmss(elegida.ini)}</b> al <b>${mmss(elegida.fin)}</b> (dura ${durTexto(elegida.fin - elegida.ini)}).`;
+      $("#vNota").innerHTML = `Vas a estudiar del minuto <b>${Math.round(d / 60)}</b> al <b>${Math.round(h / 60)}</b> (${durTexto(h - d)}).`;
     };
     $("#vDesde").oninput = pintar; $("#vHasta").oninput = pintar;
     pintar();
