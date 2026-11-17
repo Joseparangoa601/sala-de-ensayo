@@ -1157,7 +1157,7 @@ function showRecap(scene, ses, list, leave, hist = []) {
     const en = $("#rcEntrar"); if (en) en.onclick = salirDePrueba;
     const rs = $("#rcReservar"); if (rs) rs.onclick = () => trackPrueba("reservar");
     const ig = $("#rcIG"); if (ig) ig.onclick = () => trackPrueba("instagram");
-    if (S.prueba) informeForm(scene, ev, list);
+    if (S.prueba) { informeForm(scene, ev, list); retoEscuchaForm(); }
     if (scene.medicion) $("#rcAgain")?.remove();   // la medición vale por el primer intento: no se repite en el momento
   }
   S.recapRender = render;
@@ -2175,8 +2175,49 @@ function pruebaCierreHTML(ev) {
     <a class="primary wide" id="rcReservar" href="${esc(COMPRA_URL)}" target="_blank" rel="noopener">${COMPRA_TXT}</a>
     <button class="ghost wide" id="rcAgain">Ensayar otra vez</button>
     <button class="linklike" type="button" id="rcEntrar">Ya tengo acceso: entrar</button>
+    ${retoEscuchaHTML()}
     ${IG_URL ? `<p class="muted prueba-ig">Cada semana, una pregunta de entrevista nueva en Instagram: <a id="rcIG" href="${esc(IG_URL)}" target="_blank" rel="noopener">${esc(IG_TXT)}</a></p>` : ""}
   </div>`;
+}
+// Reto de escucha al cierre de la prueba: una pregunta del módulo «Entiende al reclutador» en el nivel más difícil
+// (acento sudafricano + videollamada con ruido). Audio fijo ya grabado: no gasta voz por usuario.
+const RETO_ESCUCHA = { id: "challenge", en: "Can you tell me about a time you faced a real challenge at work, and how you got through it?",
+  es: "¿Me cuentas de una vez en que enfrentaste un reto real en el trabajo y cómo lo superaste?" };
+function retoEscuchaHTML() {
+  return `<div class="reto-escucha" id="reEsc">
+    <p class="rc-meta">Reto de escucha · 20 segundos</p>
+    <p>En la entrevista real la pregunta llega por videollamada, con acento y con ruido. ¿La entiendes?</p>
+    <button class="ghost wide" id="reOir">${IC.play || ""}Escuchar la pregunta</button>
+    <div id="reResp" hidden>
+      <button class="ghost wide" id="reSi">Sí, la entendí</button>
+      <button class="ghost wide" id="reNo">No la entendí</button>
+    </div>
+    <div id="reFin" hidden></div>
+  </div>`;
+}
+function retoEscuchaForm() {
+  const box = $("#reEsc"); if (!box) return;
+  const url = (n) => `audio/niveles/${RETO_ESCUCHA.id}_${n}.mp3`;
+  let oido = false;
+  $("#reOir").onclick = () => {
+    speakEN(RETO_ESCUCHA.en, { rate: "0%", url: url(5) }).catch(() => {});
+    if (!oido) { oido = true; trackPrueba("escucha_oir"); }
+    $("#reResp").hidden = false;
+  };
+  const fin = (entendio) => {
+    trackPrueba(entendio ? "escucha_si" : "escucha_no");
+    $("#reResp").hidden = true; $("#reOir").hidden = true;
+    const f = $("#reFin"); f.hidden = false;
+    f.innerHTML = `<p>${entendio ? "Bien: esa es la versión más difícil, con acento sudafricano y ruido de llamada." : "Es normal: esa es la versión más difícil, con acento sudafricano y ruido de llamada. Escúchala lenta y con el texto:"}</p>
+      <div class="nv-texto"><p class="en">${esc(RETO_ESCUCHA.en)}</p><p class="muted">${esc(RETO_ESCUCHA.es)}</p></div>
+      <div class="nv-oir"><button class="chip" id="reLenta">${IC.play || ""}Lenta</button><button class="chip" id="reRuido">${IC.play || ""}Con ruido</button></div>
+      <p class="muted">Con tu acceso: 12 preguntas como esta, cada una en 5 niveles, con acentos de Reino Unido, India, Australia, Irlanda, Escocia y Sudáfrica.</p>`;
+    $("#reLenta").onclick = () => speakEN(RETO_ESCUCHA.en, { rate: "0%", url: url(1) }).catch(() => {});
+    $("#reRuido").onclick = () => speakEN(RETO_ESCUCHA.en, { rate: "0%", url: url(5) }).catch(() => {});
+    if (!entendio) speakEN(RETO_ESCUCHA.en, { rate: "0%", url: url(1) }).catch(() => {});
+  };
+  $("#reSi").onclick = () => fin(true);
+  $("#reNo").onclick = () => fin(false);
 }
 // Cuenta de Instagram de la serie «Entrevista en inglés» (creada 15-nov-2026). Vacía = la línea no se muestra
 const IG_URL = "https://www.instagram.com/saladeensayo.app/";
