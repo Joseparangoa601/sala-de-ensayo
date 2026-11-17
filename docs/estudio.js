@@ -11,7 +11,8 @@ const SDK = window.SpeechSDK;
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 const LB = { A1: -2.5, A2: -1.5, B1: -0.5, B2: 0.5, C1: 1.5, C2: 2.5 };     // dificultad de cada nivel en la escala θ
 const SKILL = { vocab: "Vocabulario", gramatica: "Gramática", escucha: "Escucha", habla: "Habla" };
-const mmss = (s) => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+// Como YouTube: 4:05, 25:23 y, desde una hora, 1:05:30
+const mmss = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
 const store = () => Sala.store;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -577,7 +578,7 @@ async function videoHome(prefill) {
     <form id="vForm" class="stack" novalidate>
       <label for="vUrl">Enlace de YouTube (video en inglés)</label>
       <input id="vUrl" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" value="${esc(prefill?.url || "")}">
-      <button class="primary wide">Preparar lección</button>
+      <button class="primary wide" id="vBuscar">Buscar el video</button>
     </form>
     <div id="vStatus"></div>
     <details class="prefs" id="vPasteBox" ${prefill?.paste ? "open" : ""}>
@@ -594,6 +595,8 @@ async function videoHome(prefill) {
     <div class="list" id="vList"><p class="muted small">Cargando…</p></div>
     <p class="muted small">Cómo funciona: 1) antes de ver, de qué trata y las expresiones clave, 2) idea general sin texto, 3) con el texto en inglés, 4) frase por frase con dictado, explicación y repetición, 5) de nuevo sin texto, 6) conversación con un personaje sobre el tema. Las expresiones van a tu cuaderno de repaso.</p>`);
   $("#vForm").onsubmit = (e) => { e.preventDefault(); fromUrl($("#vUrl").value.trim()); };
+  // Con un video ya buscado, el botón de arriba pasa a secundario: el siguiente paso es «Crear lección»
+  $("#vUrl").oninput = () => { const b = $("#vBuscar"); if (b) { b.className = "primary wide"; b.textContent = "Buscar el video"; } };
   on("vPasteGo", () => fromPaste());
   on("vPush", (ev) => testPush(ev.currentTarget));
   renderLessonList();
@@ -729,7 +732,7 @@ async function fetchTranscript(url, g, otraParte = false) {
     if (ya) {
       status(`<div class="rc-ctx"><b>Ya tienes una lección de este video en nivel ${esc(lv)}</b></div>
         <button class="primary wide" id="vAbrir">Abrir la lección</button>
-        <button class="ghost wide" id="vOtraParte">Crear otra lección desde otro minuto</button>`);
+        <button class="ghost wide" id="vOtraParte">Crear otra: otro nivel u otra parte del video</button>`);
       on("vAbrir", () => openLesson(ya));
       on("vOtraParte", () => fromUrl(url, true));
       return;
@@ -811,20 +814,32 @@ function confirmGenerate(src, level) {
   const words = src.chunks.reduce((a, c) => a + c.text.split(/\s+/).length, 0);
   const last = src.chunks[src.chunks.length - 1];
   const dur = last ? last.t + last.d : 0;
-  const lv = level || Sala.level();
+  let lv = NIVELES_LECCION.includes(level || Sala.level()) ? level || Sala.level() : "B1";
   const todo = ventana(src.chunks, 0), long = todo.fin < dur - 5, elegir = dur > 180;
-  status(`<div class="rc-ctx"><b>Transcripción lista</b>
-      <span>${mmss(dur)} min · ${words} palabras${src.fuente === "pegada" && !src.videoId ? " · sin video: los audios los leerá la voz de la app" : ""}</span></div>
+  const buscar = $("#vBuscar"); if (buscar) { buscar.className = "ghost wide"; buscar.textContent = "Buscar otro video"; }
+  status(`<div class="rc-ctx"><b>Video listo</b>
+      <span>Dura ${durLarga(dur)} · ${words.toLocaleString("es-CO")} palabras${src.fuente === "pegada" && !src.videoId ? " · sin video: los audios los leerá la voz de la app" : ""}</span></div>
+    <fieldset class="tramo"><legend>Nivel de la lección</legend>
+      <div class="rates five" role="group" aria-label="Nivel de la lección">${NIVELES_LECCION.map((n) => `<button type="button" class="rate" data-lnv="${n}"><span>${n}</span></button>`).join("")}</div>
+      <p class="muted small" style="margin:0" id="vNivelNota"></p>
+    </fieldset>
     ${elegir ? `<fieldset class="tramo"><legend>¿Qué parte quieres estudiar?</legend>
       <div class="tramo-row">
-        <label>Desde<input id="vDesde" type="text" inputmode="decimal" autocomplete="off" placeholder="0:00"></label>
-        <label>Hasta<input id="vHasta" type="text" inputmode="decimal" autocomplete="off" placeholder="${long ? "opcional" : mmss(dur)}"></label>
+        <label>Empieza en<input id="vDesde" type="text" inputmode="decimal" autocomplete="off" placeholder="0:00"></label>
+        <label>Termina en<input id="vHasta" type="text" inputmode="decimal" autocomplete="off" placeholder="${long ? "ej. 12:00" : mmss(dur)}"></label>
       </div>
-      <p class="muted small">Escribe minutos y segundos, como en YouTube: 30:15 (o 30.15). Hasta ${MAX_PARTE / 60} minutos por lección.</p>
+      <p class="muted small">Escribe el minuto como en YouTube: 30:15${dur >= 3600 ? " o 1:05:30" : ""}. Máximo ${MAX_PARTE / 60} minutos por lección.</p>
     </fieldset><div class="notice" data-kind="warn" id="vNota" role="status"></div>` : ""}
-    <button class="primary wide" id="vGen">Crear lección para nivel ${lv}</button>
+    <button class="primary wide" id="vGen">Crear lección ${lv}</button>
     <p class="muted small">Tarda cerca de 1 minuto. Te aviso con una notificación cuando esté lista.</p>`);
   let elegida = todo, exacto = false;
+  const pintarNivel = () => {
+    for (const b of document.querySelectorAll("[data-lnv]")) { const on_ = b.dataset.lnv === lv; b.classList.toggle("sug", on_); b.setAttribute("aria-pressed", String(on_)); }
+    $("#vGen").textContent = `Crear lección ${lv}`;
+    $("#vNivelNota").textContent = `${lv === Sala.level() ? "Es tu nivel actual." : `Tu nivel actual es ${Sala.level()}; esta lección será ${lv}.`} ${ENFOQUE_NIVEL[lv] ? "En " + lv + ": " + ENFOQUE_NIVEL[lv] : ""}`;
+  };
+  for (const b of document.querySelectorAll("[data-lnv]")) b.onclick = () => { lv = b.dataset.lnv; pintarNivel(); };
+  pintarNivel();
   if (elegir) {
     const pintar = () => {
       const tD = $("#vDesde").value.trim(), tH = $("#vHasta").value.trim();
@@ -837,12 +852,12 @@ function confirmGenerate(src, level) {
         // solo el inicio: la app escoge unos 10 minutos dentro de los 25 que siguen (como antes)
         exacto = false; elegida = ventana(src.chunks, d);
         if (elegida.palabras < 40) return mal("Desde ahí queda muy poco texto. Elige un inicio anterior.");
-        $("#vNota").innerHTML = !tD && !long ? `Si no eliges, la app escoge la parte más útil para ti (unos 10 minutos).`
-          : `${long ? "<b>Video largo.</b> " : ""}Sin «Hasta», la app toma del ${mmss(elegida.ini)} al ${mmss(elegida.fin)} y ahí escoge unos 10 minutos. Escribe «Hasta» para estudiar exactamente tu parte.`;
+        $("#vNota").innerHTML = !tD && !long ? `Si dejas las casillas vacías, la app escoge la parte más útil para ti (unos 10 minutos).`
+          : `${long ? `<b>Video largo (${durLarga(dur)}).</b> ` : ""}Si dejas vacía la casilla «Termina en», la app busca entre el ${mmss(elegida.ini)} y el ${mmss(elegida.fin)} y escoge unos 10 minutos. Para estudiar una parte exacta, escribe dónde termina.`;
         return;
       }
       const h = Math.min(hh, dur);
-      if (h <= d) return mal("«Hasta» debe ser después de «Desde».");
+      if (h <= d) return mal("«Termina en» debe ser después de «Empieza en».");
       if (h - d < 60) return mal("Elige al menos 1 minuto.");
       if (h - d > MAX_PARTE) return mal(`Elegiste ${durTexto(h - d)}. El máximo es ${MAX_PARTE / 60} minutos: con más, la lección pierde calidad. Acorta la parte o divídela en dos lecciones.`);
       exacto = true;
@@ -867,6 +882,9 @@ function leerTiempo(s) {
   if (n[n.length - 1] > 59 || (n.length === 3 && n[1] > 59)) return null;
   return n.length === 2 ? n[0] * 60 + n[1] : n[0] * 3600 + n[1] * 60 + n[2];
 }
+// «2 h 10 min», «45 min»: más fácil de leer que 130:42
+function durLarga(seg) { const m = Math.round(seg / 60), h = Math.floor(m / 60); return h ? `${h} h${m % 60 ? ` ${m % 60} min` : ""}` : m ? `${m} min` : `${Math.round(seg)} s`; }
+const NIVELES_LECCION = ["A1", "A2", "B1", "B2", "C1"];
 function durTexto(seg) { const m = Math.floor(seg / 60), s = Math.round(seg % 60); return m ? `${m} min${s ? ` ${s} s` : ""}` : `${s} s`; }
 /* ---------- notificaciones push ---------- */
 // iOS solo permite pedir el permiso tocando un botón y con la app instalada en la pantalla de inicio.
