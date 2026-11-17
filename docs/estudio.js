@@ -2049,6 +2049,63 @@ function empezarMedicion(d, nivelFijo) {
   despuesTest = (nivel) => { despuesTest = null; llamada(nivel); };
   testIntro();
 }
+/* ---------- Entiende al reclutador: la misma pregunta en 5 niveles (17-nov) ----------
+   Audio grabado una vez con ElevenLabs (herramientas/generar_niveles.py): no gasta voz por usuario.
+   Se sube de nivel mientras la persona la entienda; el texto aparece al final o cuando no la entiende. */
+let NV = null;
+async function nivelesDatos() {
+  if (!NV) { const r = await fetch("niveles.json", { cache: "no-cache" }).catch(() => null) || await fetch("niveles.json"); NV = await r.json(); }
+  return NV;
+}
+const nvLogros = () => store().get("niveles5", {});
+function nvGuardar(id, n) { const s = nvLogros(); if ((s[id] || 0) < n) { s[id] = n; store().set("niveles5", s); } }
+const nvNombre = (it, n) => (n === 4 ? `Acento de ${it.acento}` : NV.niveles[n - 1]);
+const nvUrl = (it, n) => `audio/niveles/${it.id}_${n}.mp3`;
+async function nivelesHome() {
+  screen("Entiende al reclutador", "La misma pregunta en 5 niveles", home);
+  const g = screenGen;
+  try { await nivelesDatos(); } catch { if (g === screenGen) body(err("No pude cargar las preguntas. Revisa tu conexión.")); return; }
+  if (g !== screenGen) return;
+  const s = nvLogros(), hechas = NV.items.filter((it) => s[it.id]).length;
+  body(`
+    <p>Las 12 preguntas que más salen en una entrevista, dichas como las diría un reclutador real. Cada una tiene 5 niveles: lenta, normal, rápida, con otro acento y en videollamada con ruido. Sube mientras la entiendas.</p>
+    ${hechas ? `<p class="muted small">Llevas ${hechas} de ${NV.items.length}. Toca una para mejorar tu nivel.</p>` : ""}
+    <div class="tiles one">${NV.items.map((it, i) => `<button class="tile nv-item" data-i="${i}"><span class="nv-num" aria-hidden="true">${s[it.id] ? `${s[it.id]}/5` : i + 1}</span><span><b>${esc(it.guia)}</b><small>${s[it.id] ? `Llegaste al nivel ${s[it.id]}: ${esc(nvNombre(it, s[it.id]).toLowerCase())}` : "Sin empezar"} · acento de ${esc(it.acento)}</small></span></button>`).join("")}</div>`);
+  for (const b of document.querySelectorAll(".nv-item")) b.onclick = () => nivelesPregunta(Number(b.dataset.i), 1, false);
+}
+function nivelesPregunta(i, n, ayuda) {
+  const it = NV.items[i];
+  screen("Entiende al reclutador", `Pregunta ${i + 1} de ${NV.items.length} · nivel ${n} de 5`, nivelesHome, "‹ Preguntas");
+  body(`
+    <div class="nv-escalera" aria-label="Nivel ${n} de 5">${[1, 2, 3, 4, 5].map((k) => `<span class="${k < n ? "ok" : k === n ? "on" : ""}">${k}</span>`).join("")}</div>
+    <p class="rc-meta">Nivel ${n} · ${esc(nvNombre(it, n))}</p>
+    <button class="primary wide" id="nvPlay">${IC.play}Escuchar otra vez</button>
+    <p>¿Entendiste qué te preguntó?</p>
+    <button class="ghost wide" id="nvSi">Sí, la entendí${n < 5 ? " · subir al nivel " + (n + 1) : ""}</button>
+    <button class="ghost wide" id="nvNo">No la entendí · ver el texto</button>
+    ${ayuda ? `<p class="muted small">Ya viste el texto: este intento es práctica y no cambia tu nivel.</p>` : ""}`);
+  const play = () => sayEN(it.en, { rate: "0%", url: nvUrl(it, n) });
+  on("nvPlay", play); play();
+  on("nvSi", () => { if (!ayuda) nvGuardar(it.id, n); if (n < 5) nivelesPregunta(i, n + 1, ayuda); else nivelesFinal(i, 5, ayuda); });
+  on("nvNo", () => nivelesFinal(i, n - 1, ayuda));
+}
+function nivelesFinal(i, logrado, ayuda) {
+  const it = NV.items[i], sig = i + 1 < NV.items.length ? i + 1 : null;
+  screen("Entiende al reclutador", `Pregunta ${i + 1} de ${NV.items.length}`, nivelesHome, "‹ Preguntas");
+  const msg = logrado === 5 ? "¡Nivel 5! La entiendes hasta en una videollamada con ruido."
+    : logrado ? `Llegaste al nivel ${logrado}: ${nvNombre(it, logrado).toLowerCase()}.` : "Esta todavía no. Escúchala con el texto delante y vuelve a intentarlo.";
+  body(`
+    <p><b>${ayuda ? "Práctica con el texto." : esc(msg)}</b></p>
+    <div class="nv-texto"><p lang="en"><b>${esc(it.en)}</b></p><p class="muted">${esc(it.es)}</p></div>
+    <p class="muted small">Escúchala en cada nivel mientras lees:</p>
+    <div class="nv-oir">${[1, 2, 3, 4, 5].map((k) => `<button class="chip" data-n="${k}">${IC.play}${k} · ${esc(nvNombre(it, k))}</button>`).join("")}</div>
+    ${logrado < 5 ? `<button class="ghost wide" id="nvOtra">Intentar de nuevo desde el nivel ${logrado + 1}</button>` : ""}
+    ${sig !== null ? `<button class="primary wide" id="nvSig">Siguiente pregunta</button>` : `<button class="primary wide" id="nvFin">Ver todas mis preguntas</button>`}`);
+  for (const b of document.querySelectorAll(".nv-oir .chip")) b.onclick = () => sayEN(it.en, { rate: "0%", url: nvUrl(it, Number(b.dataset.n)) });
+  on("nvOtra", () => nivelesPregunta(i, logrado + 1, true));
+  on("nvSig", () => nivelesPregunta(sig, 1, false));
+  on("nvFin", nivelesHome);
+}
 function reopen(from, practiced) {
   if (from?.kind === "prep" && window.Prep) { leave(); Prep.afterSim(); return; }
   if (from?.kind === "medicion") { medicionScreen(); return; }
@@ -2059,6 +2116,7 @@ document.addEventListener("DOMContentLoaded", () => {
   on("studyBack", () => { if (onBack) { const f = onBack; f(); } else home(); });
   on("testBtn", () => { despuesTest = null; testIntro(); });
   on("videoBtn", () => videoHome());
+  on("nivelesBtn", nivelesHome);
   on("progressBtn", progress);
   on("medirBtn", medicionScreen);
   on("tutBtn", tutorialsScreen);
