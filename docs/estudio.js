@@ -1125,11 +1125,21 @@ function addExpr(e) {
 }
 function wireSay(root = document) { for (const b of root.querySelectorAll("[data-say]")) b.onclick = () => sayEN(b.dataset.say); }
 
+// Lo que cambia según el nivel (coincide con LEVEL_RULES de /generar; lecciones creadas desde el 17-nov)
+const ENFOQUE_NIVEL = {
+  A1: "frases muy cortas, un solo hueco en el dictado y las expresiones más básicas.",
+  A2: "frases cortas de 4 a 8 segundos, dictado de 1 o 2 palabras claras y expresiones de todos los días.",
+  B1: "fragmentos de 1 o 2 frases, dictado con formas reducidas (I've, gonna) y phrasal verbs comunes.",
+  B2: "fragmentos más largos y rápidos, dictado de enlaces entre palabras y expresiones con matices.",
+  C1: "los pasajes más rápidos o implícitos, dictado de los sonidos que más se pierden y expresiones poco obvias.",
+};
+ENFOQUE_NIVEL.C2 = ENFOQUE_NIVEL.C1;
 function step1() {
   const L = LS.L;
   sb_(`
     <p>${esc(L.resumen_es)}</p>
     <div class="rc-ctx"><b>¿Es para tu nivel?</b><span>${esc(L.encaje_es)}</span></div>
+    ${ENFOQUE_NIVEL[LS.row.nivel] && LS.row.creado >= "2026-11-17" ? `<p class="muted small">Cómo se adapta a ${esc(LS.row.nivel)}: ${ENFOQUE_NIVEL[LS.row.nivel]}</p>` : ""}
     <div class="rc-ctx"><b>La parte que vas a estudiar: ${parteVideo().rango} (dura ${parteVideo().dura})</b><span>${esc(L.tramo.por_que_es)}</span></div>
     <div class="rc-ctx"><b>Antes de ver, piensa</b><span>${esc(L.prediccion_es)}</span></div>
     <h3>Expresiones clave</h3>
