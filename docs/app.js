@@ -368,8 +368,11 @@ function speakSentence(text, gen) {
 function speakItem(item) {
   // Tope de 8 s (15 s la corrección, que es larga y suena después del personaje): una síntesis colgada no debe bloquear la cola
   const tope = item.coach ? 15000 : 8000;
+  // 17-nov: un audio ya grabado (item.url, p. ej. la escucha con acentos) se reproduce tal cual; si no carga, se sintetiza con Azure
+  const grabado = item.url ? fetch(item.url).then((r) => { if (!r.ok) throw { code: "audio", detail: r.status }; return r.arrayBuffer(); })
+    .catch((e) => { logDebug("Audio grabado no cargó → Azure: " + (e?.detail || e?.message || e)); return sintetizar(item); }) : null;
   item.ready = Promise.race([
-    sintetizar(item).then((ab) => ctx.decodeAudioData(ab.slice(0))),
+    (grabado || sintetizar(item)).then((ab) => ctx.decodeAudioData(ab.slice(0))),
     new Promise((_, rej) => setTimeout(() => rej({ code: "tts", detail: `sin respuesta en ${tope / 1000} s` }), tope)),
   ])
     .catch((e) => {
@@ -2201,7 +2204,7 @@ async function ensureVoice() {
 }
 let enNow = null;   // lo que suena por un botón «Escuchar»: tocar varias veces no acumula audio ni gasta voz de más
 function speakEN(text, opts = {}) {
-  const key = `${text}|${opts.voice || ""}|${opts.rate || ""}`;
+  const key = `${text}|${opts.voice || ""}|${opts.rate || ""}|${opts.url || ""}`;
   if (enNow && enNow.gen === S.gen) {
     if (enNow.key === key && Date.now() < enNow.until) return enNow.promise;
     stopSpeaking();   // otra frase, o una que quedó colgada: reemplaza en lugar de ponerse en fila
@@ -2211,7 +2214,7 @@ function speakEN(text, opts = {}) {
   const rate = opts.rate || "-8%";
   const doc = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${voice}"><prosody rate="${rate}">${conPausas(text, parseInt(rate, 10) <= LENTO)}</prosody></voice></speak>`;
   const now_ = { key, gen: S.gen, until: Date.now() + 12000 + text.length * 150 };
-  now_.promise = new Promise((resolve) => speakItem({ text, gen: S.gen, ssml: doc, coach: true, plain: text, onEnd: () => { if (enNow === now_) enNow = null; resolve(); } }));
+  now_.promise = new Promise((resolve) => speakItem({ text, gen: S.gen, ssml: doc, coach: true, plain: text, url: opts.url, onEnd: () => { if (enNow === now_) enNow = null; resolve(); } }));
   enNow = now_;
   return now_.promise;
 }

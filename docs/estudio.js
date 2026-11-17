@@ -401,7 +401,8 @@ function playItem() {
   if (T.plays >= 2) return;
   T.plays++;
   const b = $("#tPlay"); if (b) { b.disabled = T.plays >= 2; b.innerHTML = T.plays >= 2 ? "Ya escuchaste 2 veces" : `${IC.play}Escuchar otra vez (1 más)`; }
-  sayEN(T.cur.audio_en, { rate: "0%" });
+  // 17-nov: grabado con ElevenLabs (dos voces en los diálogos, acentos variados según el nivel); si falta, Azure lee el texto
+  sayEN(T.cur.audio_en, { rate: "0%", url: `audio/escucha/${T.cur.id}.mp3` });
 }
 function answer(i) {
   Sala.stopAudio();
