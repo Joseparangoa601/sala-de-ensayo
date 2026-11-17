@@ -34,6 +34,11 @@
   .error{background:var(--warn);border-radius:12px;padding:10px 14px;margin:.3em 0 1em;font-size:.95rem}
   .cta{display:block;text-align:center;background:var(--action);color:var(--action-ink);font-weight:700;border-radius:12px;padding:15px;text-decoration:none;margin:1.6em 0 .6em}
   .muted{color:var(--muted);font-size:.9rem}
+  .oir{display:flex;flex-wrap:wrap;gap:8px;margin:.2em 0 .8em}
+  .oir button,.frases button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:.9rem;font-weight:600;color:var(--accent);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:0 14px;min-height:40px;cursor:pointer}
+  .oir button[aria-pressed="true"],.frases button[aria-pressed="true"]{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+  .frases button{min-height:32px;width:32px;padding:0;justify-content:center;margin-right:8px;vertical-align:middle}
+  .oir svg,.frases svg{width:14px;height:14px;flex:none;fill:currentColor}
 </style>
 </head>
 <body>
@@ -41,6 +46,7 @@
   <div class="marca">Sala de Ensayo · Guía gratis</div>
   <h1>Las 12 preguntas que te hacen en casi cualquier entrevista en inglés</h1>
   <p class="lead">Cambian el cargo y la empresa, pero estas preguntas se repiten. Para cada una: qué quieren saber de verdad, cómo armar tu respuesta, un ejemplo a nivel intermedio (B1–B2) y el error que más se comete.</p>
+  <p class="muted">Ahora también para escuchar: oye cada pregunta como te la hace una reclutadora, el ejemplo normal y lento, y cada frase útil. Ideal para repasar camino a la entrevista, con audífonos.</p>
 
   <p>Una respuesta fuerte, en cualquier idioma, cumple cuatro cosas. Son los mismos criterios con los que Sala de Ensayo califica tus respuestas:</p>
   <div class="criterios">
@@ -172,5 +178,31 @@
   <a class="cta" href="https://sala.lead10x.com.co/entrevista/?utm_source=guia&utm_medium=correo&utm_campaign=bf2026">Ver Sala de Ensayo</a>
   <p class="muted">Guía de Sala de Ensayo, un producto de lead10x. Los ejemplos son ilustrativos: cambia los datos por los tuyos y no inventes logros que luego tengas que defender.</p>
 </div>
+<script>
+// 17-nov: audio grabado de cada pregunta (reclutadora), del ejemplo (normal y lento) y de cada frase útil.
+// Un solo reproductor: tocar otro botón detiene el anterior; tocar el mismo lo pausa.
+(() => {
+  const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+  const audio = new Audio(); let actual = null;
+  const soltar = () => { if (actual) actual.setAttribute("aria-pressed", "false"); actual = null; };
+  audio.onended = soltar; audio.onerror = soltar;
+  const boton = (src, texto, etiqueta) => {
+    const b = document.createElement("button"); b.type = "button"; b.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-label", etiqueta); b.innerHTML = PLAY + (texto ? `<span>${texto}</span>` : "");
+    b.onclick = () => {
+      if (actual === b) { audio.pause(); soltar(); return; }
+      soltar(); audio.src = src; audio.play().then(() => { actual = b; b.setAttribute("aria-pressed", "true"); }).catch(soltar);
+    };
+    return b;
+  };
+  for (const q of document.querySelectorAll("section.q")) {
+    const id = q.id, a = (n) => `audio/${id}_${n}.mp3`, fila = (...bs) => { const d = document.createElement("div"); d.className = "oir"; d.append(...bs); return d; };
+    q.querySelector("p.es").after(fila(boton(a("pregunta"), "Así te la preguntan", "Escuchar la pregunta")));
+    const m = q.querySelector(".modelo");
+    if (m) m.after(fila(boton(a("modelo"), "Escuchar el ejemplo", "Escuchar el ejemplo"), boton(a("modelo_lento"), "Más lento", "Escuchar el ejemplo más lento")));
+    q.querySelectorAll(".frases li").forEach((li, k) => li.prepend(boton(a("f" + (k + 1)), "", "Escuchar la frase")));
+  }
+})();
+</script>
 </body>
 </html>
