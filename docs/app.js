@@ -2064,6 +2064,46 @@ function pruebaEscena() {
   $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin registrarte. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
   $("#ppVoz").onclick = () => $("#orb").click();
   $("#ppTexto").onclick = () => { trackPrueba("texto"); $("#typeBox").focus(); };
+  avisoCookiesPrueba();
+}
+/* ---------------- píxel de Meta en la prueba (19-nov) ----------------
+   Los anuncios llevan directo a la prueba, que no tenía píxel: Meta no sabía quién la empezaba y solo podía optimizar por visitas.
+   Igual que en la landing: sin permiso no carga nada. La decisión es la misma (localStorage «sala:cookies», mismo dominio).
+   Los eventos de antes de decidir esperan en cola y se envían solo si la persona acepta. */
+const META_PIXEL = "1344665327666367";   // dataset «Sala de Ensayo» (no es secreto)
+const META_COLA = [];
+const META_EVENTO = { toque: "StartTrial", texto: "StartTrial", respuesta1: "SubmitApplication", reservar: "InitiateCheckout" };
+function decisionCookies() { try { return localStorage.getItem("sala:cookies"); } catch { return null; } }
+function cargarPixel() {
+  if (window.fbq) return;
+  const n = window.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+  n.push = n; n.loaded = true; n.version = "2.0"; n.queue = [];
+  const t = document.createElement("script"); t.async = true; t.src = "https://connect.facebook.net/en_US/fbevents.js"; document.head.appendChild(t);
+  window.fbq("init", META_PIXEL); window.fbq("track", "PageView");
+  while (META_COLA.length) { const [nombre, datos] = META_COLA.shift(); window.fbq("track", nombre, datos); }
+}
+function metaEvento(donde) {
+  const nombre = META_EVENTO[donde];
+  if (!nombre) return;
+  S.metaEnviados = S.metaEnviados || {};
+  if (S.metaEnviados[nombre]) return;   // uno por prueba: «toque» y «texto» son el mismo inicio
+  S.metaEnviados[nombre] = true;
+  const datos = nombre === "InitiateCheckout" ? { value: 15, currency: "USD" } : { content_name: "prueba" };
+  const d = decisionCookies();
+  if (d === "si") { cargarPixel(); window.fbq("track", nombre, datos); }
+  else if (!d) META_COLA.push([nombre, datos]);
+}
+function avisoCookiesPrueba() {
+  if (location.hostname !== "sala.lead10x.com.co" || INTERNO) return;
+  const d = decisionCookies();
+  if (d === "si") { cargarPixel(); return; }
+  if (d || $("#ckPrueba")) return;
+  $("#pruebaPregunta")?.insertAdjacentHTML("afterend", `<div class="ck-prueba" id="ckPrueba" role="region" aria-label="Cookies">
+    <span>¿Aceptas cookies de Meta para medir los anuncios? <a href="/entrevista/privacidad.html" target="_blank" rel="noopener">Más info</a></span>
+    <span class="ck-bot"><button type="button" class="ghost" id="ckNo">Solo necesarias</button><button type="button" class="ghost" id="ckSi">Aceptar</button></span></div>`);
+  const decidir = (v) => { try { localStorage.setItem("sala:cookies", v); } catch {} $("#ckPrueba")?.remove(); if (v === "si") cargarPixel(); else META_COLA.length = 0; };
+  $("#ckSi").onclick = () => decidir("si");
+  $("#ckNo").onclick = () => decidir("no");
 }
 function pruebaSalida() {
   $("#pruebaSalida")?.remove();
@@ -2234,6 +2274,7 @@ function sidEmbudo() {
 // Embudo de la landing (función espera): solo cuenta el sitio publicado
 function trackPrueba(donde) {
   if (location.hostname !== "sala.lead10x.com.co" || INTERNO) return;
+  metaEvento(donde);
   fetch(`${CFG.SUPABASE_URL}/functions/v1/espera`, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
     body: JSON.stringify({ evento: "prueba", donde, sid: sidEmbudo(), utm: Object.fromEntries(new URLSearchParams(location.search)) }) }).catch(() => {});
 }
