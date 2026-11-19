@@ -2064,7 +2064,7 @@ function pruebaEscena() {
   $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin registrarte. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
   $("#ppVoz").onclick = () => $("#orb").click();
   $("#ppTexto").onclick = () => { trackPrueba("texto"); $("#typeBox").focus(); };
-  avisoCookiesPrueba();
+  avisoCookiesPrueba(false);   // al abrir solo carga el píxel si ya aceptó; el aviso sale con la primera interacción (metaEvento)
 }
 /* ---------------- píxel de Meta en la prueba (19-nov) ----------------
    Los anuncios llevan directo a la prueba, que no tenía píxel: Meta no sabía quién la empezaba y solo podía optimizar por visitas.
@@ -2091,15 +2091,17 @@ function metaEvento(donde) {
   const datos = nombre === "InitiateCheckout" ? { value: 15, currency: "USD" } : { content_name: "prueba" };
   const d = decisionCookies();
   if (d === "si") { cargarPixel(); window.fbq("track", nombre, datos); }
-  else if (!d) META_COLA.push([nombre, datos]);
+  else if (!d) { META_COLA.push([nombre, datos]); avisoCookiesPrueba(); }
 }
-function avisoCookiesPrueba() {
+// Al abrir, el aviso empujaba fuera de pantalla los botones de la pregunta (iPhone, 20-nov): ahora aparece al primer toque
+function avisoCookiesPrueba(mostrar = true) {
   if (location.hostname !== "sala.lead10x.com.co" || INTERNO) return;
   const d = decisionCookies();
   if (d === "si") { cargarPixel(); return; }
-  if (d || $("#ckPrueba")) return;
-  $("#pruebaPregunta")?.insertAdjacentHTML("afterend", `<div class="ck-prueba" id="ckPrueba" role="region" aria-label="Cookies">
-    <span>¿Aceptas cookies de Meta para medir los anuncios? <a href="/entrevista/privacidad.html" target="_blank" rel="noopener">Más info</a></span>
+  if (!mostrar || d || $("#ckPrueba")) return;
+  // Fuera del scroll del chat, debajo de la barra: dentro del log quedaba tapado por el panel del micrófono en iPhone (20-nov)
+  ($("#talk .talkbar") || $("#pruebaPregunta"))?.insertAdjacentHTML("afterend", `<div class="ck-prueba" id="ckPrueba" role="region" aria-label="Cookies">
+    <span>¿Aceptas cookies de Meta? <a href="/entrevista/privacidad.html" target="_blank" rel="noopener">Info</a></span>
     <span class="ck-bot"><button type="button" class="ghost" id="ckNo">Solo necesarias</button><button type="button" class="ghost" id="ckSi">Aceptar</button></span></div>`);
   const decidir = (v) => { try { localStorage.setItem("sala:cookies", v); } catch {} $("#ckPrueba")?.remove(); if (v === "si") cargarPixel(); else META_COLA.length = 0; };
   $("#ckSi").onclick = () => decidir("si");
