@@ -2028,7 +2028,7 @@ async function pedirPasePrueba() {
     S.scene = null; S.prueba = false; document.body.classList.remove("prueba");
     show("login");
     if (j.error === "prueba_agotada") { $("#pruebaAgotada")?.remove(); $("#loginForm").insertAdjacentHTML("afterbegin", `<div id="pruebaAgotada">${pruebaAgotadaHTML(j.global)}</div>`); $("#loginErr").textContent = ""; }
-    else $("#loginErr").textContent = "La prueba sin cuenta no está disponible en este momento. Intenta más tarde.";
+    else $("#loginErr").textContent = "La prueba gratis no está disponible en este momento. Intenta más tarde.";
     return false;
   }
   try { sessionStorage.setItem("sala:prueba", tok); } catch {}
@@ -2061,7 +2061,7 @@ function pruebaEscena() {
     <button class="ghost wide" id="ppTexto">Escribir mi respuesta</button>
     ${EN_APP ? `<span class="muted small prueba-app">${AVISO_APP}</span>${enlaceNavegador()}` : ""}
   </div>`);
-  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin cuenta. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
+  $("#log").insertAdjacentHTML("afterbegin", `<div class="prueba-aviso"><b>Prueba gratis · ${PRUEBA_TURNOS} respuestas</b><span>Sin registrarte. Al final ves tu evaluación. Tu voz no se guarda.</span></div>`);
   $("#ppVoz").onclick = () => $("#orb").click();
   $("#ppTexto").onclick = () => { trackPrueba("texto"); $("#typeBox").focus(); };
 }

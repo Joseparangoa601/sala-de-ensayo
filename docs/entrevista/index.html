@@ -144,7 +144,7 @@
     <h1>El día de tu entrevista en inglés no será la primera vez que la das.</h1>
     <p class="lead">Llegas con 5 historias tuyas, practicadas en voz alta muchas veces, y con un puntaje de 0 a 100 en cada respuesta que te dice cuáles ya convencen. Todo sale de lo que de verdad hiciste: si falta un dato, la app te lo pide y no inventa logros que luego tengas que defender.</p>
     <button class="cta" data-cta="hero" data-reg="Empieza hoy · USD 27&lt;small&gt;30 días de ensayo con voz · garantía de 7 días&lt;/small&gt;">Black Friday: USD 15 <s>USD 27</s><small>Hasta el 27 de noviembre · 30 días de ensayo con voz · garantía de 7 días</small></button>
-    <a class="probar" href="/?prueba">O pruébala ya, gratis y sin cuenta: una entrevista de 5 respuestas →</a>
+    <a class="probar" href="/?prueba">O pruébala ya, gratis y sin registrarte: una entrevista de 5 respuestas →</a>
     <p class="note"><span data-reg="Pago único en Hotmart. Te llega el acceso a tu correo en minutos.">Precio regular USD 27. Black Friday hasta el 27 de noviembre (<b class="bf-queda">quedan pocos días</b>). Pago único en Hotmart; el acceso te llega al correo en minutos.</span> <a href="#dentro">Ver la app por dentro ↓</a></p>
   </header>
 </div>
@@ -446,7 +446,7 @@
     const probar = document.querySelector(".hero a.probar"), comprar = document.querySelector('[data-cta="hero"]');
     if (probar && comprar) {
       probar.className = "cta probar-cta";
-      probar.innerHTML = "Empezar mi entrevista gratis<small>Unos 5 minutos · sin cuenta y sin tarjeta</small>";
+      probar.innerHTML = "Empezar mi entrevista gratis<small>Unos 5 minutos · sin registrarte y sin tarjeta</small>";
       comprar.classList.add("sec");
       comprar.parentNode.insertBefore(probar, comprar);
     }
@@ -455,7 +455,7 @@
     const PROMESA = {
       miedo: "¿Te trabas cuando te dicen «Tell me about yourself»? Ensáyalo ahora, en voz alta.",
       puntaje: "Mira cuánto puntúa tu respuesta en inglés, y cómo sube cuando le pones un dato.",
-      prueba: "Una entrevista en inglés de 5 respuestas. Gratis y sin cuenta.",
+      prueba: "Una entrevista en inglés de 5 respuestas. Gratis y sin registrarte.",
     };
     const h1 = document.querySelector(".hero h1"), lead = document.querySelector(".hero .lead");
     if (h1) h1.textContent = PROMESA[qs.get("utm_content")] || PROMESA.prueba;
